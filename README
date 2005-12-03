@@ -1,0 +1,77 @@
+libacm - Library for InterPlay ACM Audio format.
+================================================
+
+Intro
+-----
+
+Decoder library for InterPlay ACM audio files.
+
+Includes command line tool and plugins for Winamp, GStreamer and
+XMMS family (XMMS, BMP, Audacious).
+
+The format was used for games Fallout, Fallout 2 and Baldur's Gate series.
+It is less efficient than the more advanced MP3, Vorbis or AAC algorithms,
+but it's main feature is very fast decoding speed. 
+
+
+NEWS
+----
+
+Version 0.9.1
+~~~~~~~~~~~~~
+* Use autoconf/automake for build system
+* Plugin for GStreamer 0.8.  (alsasink seems to be buggy for 22050 Hz
+  audio.  If you hear any cracks, try to use osssink.)
+* Small cleanups.
+
+Version 0.9
+~~~~~~~~~~~
+* First public release.
+* Includes: decoder, acmtool, plugins for XMMS, BEEP and Winamp
+
+
+Installation
+------------
+
+  ./configure
+  make
+  make install
+
+By default no plugins are compiled.  You must explicitly enable them:
+
+  --enable-xmms			Enable plugin for XMMS
+  --enable-beep			Enable plugin for Beep Media Player
+  --enable-audacious		Enable plugin for Audacious
+  --enable-gstreamer		Enable plugin for Gstreamer 0.8
+
+By default the plugins are installed into player's main plugin directory.
+To specify some other location, use following arguments:
+
+  --with-xmms-plugindir=DIR
+  --with-beep-plugindir=DIR
+  --with-audacious-plugindir=DIR
+  --with-gstreamer-plugindir=DIR
+
+To compile Windows binaries (needs mingw32):
+
+  make amp		- creates in_acm.dll
+  make exe		- creates acmtool.exe
+
+
+Status
+------
+
+* Decoder: stable
+* WinAmp plugin: stable
+* XMMS/BMP/Audacity plugin: stable
+* GStreamer 0.8 plugin: beta
+* GStreamer 0.9 plugin: not started
+* Encoder: when I have more time
+
+
+Credits
+-------
+
+All the hard work of reverse engineering the format was done
+by ABel from TeamX. I simply re-implemented it in C.
+
