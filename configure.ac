@@ -44,7 +44,7 @@ dnl  AM_PATH_XMMS(1.0.0, :, AC_MSG_ERROR([*** XMMS not found ***])
 
   AC_MSG_CHECKING([for location of XMMS input plugins])
   AC_ARG_WITH([xmms-plugindir], 
-    [  --with-xmms-plugindir=DIR       Destination for XMMS plugin (autodetect)],
+    [  --with-xmms-plugindir=DIR         Destination for XMMS plugin (autodetect)],
     [XMMS_DEST="$withval"])
   test -z "$XMMS_DEST" && \
   XMMS_DEST=`$XMMS_CONFIG --input-plugin-dir`
@@ -66,7 +66,7 @@ if test $beep_plugin = yes; then
 
   AC_MSG_CHECKING([for location of BEEP input plugins])
   AC_ARG_WITH([beep-plugindir], 
-    [  --with-beep-plugindir=DIR       Destination for BMP plugin (autodetect)],
+    [  --with-beep-plugindir=DIR         Destination for BMP plugin (autodetect)],
     [BEEP_DEST="$withval"])
   test -z "$BEEP_DEST" && \
   BEEP_DEST=`$PKG_CONFIG --variable=input_plugin_dir bmp`
@@ -88,7 +88,7 @@ if test $audacious_plugin = yes; then
 
   AC_MSG_CHECKING([for location of Audacious input plugins])
   AC_ARG_WITH([audacious-plugindir], 
-    [  --with-audacious-plugindir=DIR  Destination for Audacious plugin (autodetect)],
+    [  --with-audacious-plugindir=DIR    Destination for Audacious plugin (autodetect)],
     [AUDACIOUS_DEST="$withval"])
   test -z "$AUDACIOUS_DEST" && \
   AUDACIOUS_DEST=`$PKG_CONFIG --variable=input_plugin_dir audacious`
@@ -101,16 +101,16 @@ fi
 
 dnl Check for gstreamer
 gst08_plugin=no
-AC_ARG_ENABLE([gstreamer],
-  [  --enable-gstreamer      Compile plugin for GStreamer 0.8],
+AC_ARG_ENABLE([gstreamer08],
+  [  --enable-gstreamer08     Compile plugin for GStreamer 0.8],
   [gst08_plugin=$enableval])
 if test $gst08_plugin = yes; then
   PKG_CHECK_MODULES([GST08], [gstreamer-0.8], ,
      [AC_MSG_ERROR([*** GStreamer0.8 not found ***])])
 
   AC_MSG_CHECKING([for location of GStreamer plugins])
-  AC_ARG_WITH([gstreamer-plugindir], 
-    [  --with-gstreamer-plugindir=DIR  Destination for Gstreamer plugin (autodetect)],
+  AC_ARG_WITH([gstreamer08-plugindir], 
+    [  --with-gstreamer08-plugindir=DIR  Destination for Gstreamer plugin (autodetect)],
     [GST08_DEST="$withval"])
   test -z "$GST08_DEST" && \
   GST08_DEST=`$PKG_CONFIG --variable=libdir gstreamer-0.8`/gstreamer-0.8
