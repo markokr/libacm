@@ -3,6 +3,8 @@ AUTOMAKE_OPTIONS = 1.6 foreign
 
 SUBDIRS = src plugins
 
+EXTRA_DIST = autogen.sh
+
 ##
 ## Windows compilation
 ##
