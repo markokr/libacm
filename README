@@ -17,8 +17,16 @@ but it's main feature is very fast decoding speed.
 NEWS
 ----
 
-Version 0.9.1
+Version 0.9.2
 ~~~~~~~~~~~~~
+
+* License core libacm code under minimal BSD/ISC license.
+  Plugins continue to be under GPL.
+
+
+Version 0.9.1 (unreleased)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 * Use autoconf/automake for build system
 * Plugin for GStreamer 0.8.  (alsasink seems to be buggy for 22050 Hz
   audio.  If you hear any cracks, try to use osssink.)
@@ -26,6 +34,7 @@ Version 0.9.1
 
 Version 0.9
 ~~~~~~~~~~~
+
 * First public release.
 * Includes: decoder, acmtool, plugins for XMMS, BEEP and Winamp
 
