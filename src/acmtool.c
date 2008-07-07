@@ -131,7 +131,7 @@ static void decode_file(const char *fn, const char *fn2)
 	int res, res2, buflen, err;
 	FILE *fo = NULL;
 	int bytes_done = 0, total_bytes;
-	const ACMInfo *info = acm_info(acm);
+	const ACMInfo *info;
 
 	err = acm_open_file(&acm, fn);
 	if (err < 0) {
@@ -139,6 +139,8 @@ static void decode_file(const char *fn, const char *fn2)
 		return;
 	}
 	show_header(fn, acm);
+
+	info = acm_info(acm);
 
 	if (!cf_no_output) {
 		fo = fopen(fn2, "wb");
