@@ -579,7 +579,9 @@ static int decode_block(ACMStream *acm)
 	acm->block_pos = 0;
 
 	/* read header */
-	GET_BITS(pwr, acm, 4); /* to_check? -> ret val */
+	GET_BITS_NOERR(pwr, acm, 4);
+	if (pwr < 0)
+		return -2;  /* expected eof? */
 	GET_BITS(val, acm, 16);
 	count = 1 << pwr;
 
