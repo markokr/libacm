@@ -473,15 +473,15 @@ static int f_t37(ACMStream *acm, int ind, int col)
 
 /****************/
 
-static filler_t filler_list[] = {
-f_zero, f_bad, f_bad, f_linear,
-f_linear, f_linear, f_linear, f_linear,
-f_linear, f_linear, f_linear, f_linear,
-f_linear, f_linear, f_linear, f_linear,
-f_linear, f_k13, f_k12, f_t15,
-f_k24, f_k23, f_t27, f_k35,
-f_k34, f_bad, f_k45, f_k44,
-f_bad, f_t37, f_bad, f_bad
+static const filler_t filler_list[] = {
+	f_zero, f_bad, f_bad, f_linear, 	/* 0..3 */
+	f_linear, f_linear, f_linear, f_linear,	/* 4..7 */
+	f_linear, f_linear, f_linear, f_linear,	/* 8..11 */
+	f_linear, f_linear, f_linear, f_linear,	/* 12..15 */
+	f_linear, f_k13, f_k12, f_t15,		/* 16..19 */
+	f_k24, f_k23, f_t27, f_k35,		/* 20..23 */
+	f_k34, f_bad, f_k45, f_k44,		/* 24..27 */
+	f_bad, f_t37, f_bad, f_bad		/* 28..31 */
 };
 
 static int fill_block(ACMStream *acm)
