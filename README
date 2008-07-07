@@ -22,7 +22,7 @@ Version 0.9.2
 
 * License core libacm code under minimal BSD/ISC license.
   Plugins continue to be under GPL.
-
+* Fix acmtool crash.  (ahalda@cs.mcgill.ca)
 
 Version 0.9.1 (unreleased)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
