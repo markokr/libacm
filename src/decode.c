@@ -738,9 +738,12 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
 
 	*res = acm;
 	return ACM_OK;
+
 err_out:
-	/* dont let it close here */
+	/* disable callbacks */
+	memset(&acm->io, 0, sizeof(acm->io));
 	acm->io_arg = NULL;
+
 	acm_close(acm);
 	return err;
 }
@@ -801,7 +804,7 @@ void acm_close(ACMStream *acm)
 {
 	if (acm == NULL)
 		return;
-	if (acm->io_arg && acm->io.close_func)
+	if (acm->io.close_func)
 		acm->io.close_func(acm->io_arg);
 	if (acm->buf)
 		free(acm->buf);
