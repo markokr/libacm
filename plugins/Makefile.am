@@ -19,9 +19,9 @@ audacious_plugindir = $(AUDACIOUS_DEST)
 audacious_plugin_LTLIBRARIES = audacious-acm.la
 endif
 
-if MAKE_GST08_PLUGIN
-gst08_plugindir = $(GST08_DEST)
-gst08_plugin_LTLIBRARIES = acmdec-gst08.la
+if MAKE_GST10_PLUGIN
+gst10_plugindir = $(GST10_DEST)
+gst10_plugin_LTLIBRARIES = acmdec-gst10.la
 endif
 
 xmms_acm_la_SOURCES = plugin-xmms.c
@@ -39,8 +39,8 @@ audacious_acm_la_CPPFLAGS = $(AUDACIOUS_CFLAGS) $(acm_cpp)
 audacious_acm_la_LIBADD = $(acm_lib)
 audacious_acm_la_LDFLAGS = $(AUDACIOUS_LIBS) -module -avoid-version
 
-acmdec_gst08_la_SOURCES = plugin-gstreamer.c
-acmdec_gst08_la_CPPFLAGS = $(GST08_CFLAGS) $(acm_cpp)
-acmdec_gst08_la_LIBADD = $(acm_lib)
-acmdec_gst08_la_LDFLAGS = $(GST08_LIBS) -module -avoid-version
+acmdec_gst10_la_SOURCES = plugin-gstreamer.c
+acmdec_gst10_la_CPPFLAGS = $(GST10_CFLAGS) $(acm_cpp)
+acmdec_gst10_la_LIBADD = $(acm_lib)
+acmdec_gst10_la_LDFLAGS = $(GST10_LIBS) -module -avoid-version
 
