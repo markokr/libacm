@@ -34,8 +34,8 @@ beep_acm_la_CPPFLAGS = -DBEEP $(BEEP_CFLAGS) $(acm_cpp)
 beep_acm_la_LIBADD = $(acm_lib)
 beep_acm_la_LDFLAGS = $(BEEP_LIBS) -module -avoid-version
 
-audacious_acm_la_SOURCES = plugin-xmms.c
-audacious_acm_la_CPPFLAGS = -DAUDACIOUS $(AUDACIOUS_CFLAGS) $(acm_cpp)
+audacious_acm_la_SOURCES = plugin-audacious.c
+audacious_acm_la_CPPFLAGS = $(AUDACIOUS_CFLAGS) $(acm_cpp)
 audacious_acm_la_LIBADD = $(acm_lib)
 audacious_acm_la_LDFLAGS = $(AUDACIOUS_LIBS) -module -avoid-version
 
