@@ -155,7 +155,7 @@ static int mul_3x5[5*5*5];
 static int mul_2x11[11*11];
 static int tables_generated;
 
-static void generate_tables()
+static void generate_tables(void)
 {
 	int x1, x2, x3;
 	if (tables_generated)
