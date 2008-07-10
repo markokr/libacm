@@ -17,6 +17,17 @@ but it's main feature is very fast decoding speed.
 NEWS
 ----
 
+Version 1.0 (in-progress)
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+* decoder: be more tolerant for unexpected EOF
+* plugin-audacious.c: New plugin for Audacious 1.3+
+
+
+Todo:
+* Plugin for gstreamer 0.10
+* License plugins under LGPL.
+
 Version 0.9.2
 ~~~~~~~~~~~~~
 
