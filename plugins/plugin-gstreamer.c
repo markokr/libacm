@@ -1,7 +1,7 @@
 /*
  * plugin-gstreamer.c - Decoder plugin for GStreamer.
  *
- * Copyright (C) 2005  Marko Kreen
+ * Copyright (C) 2005-2008  Marko Kreen
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,53 +26,85 @@
 #include <string.h>
 
 #include <gst/gst.h>
-#include <gst/gstplugin.h>
-#include <gst/bytestream/bytestream.h>
+#include <gst/base/gstpushsrc.h>
 
 #include "libacm.h"
 
-#define REQLEN (4 * 1024)
-
+/* make sure we know byte order */
 #if !defined(BYTE_ORDER) || !defined(LITTLE_ENDIAN)
 #error BYTE_ORDER must be defined.
 #endif
-
 #if BYTE_ORDER == LITTLE_ENDIAN
 #define ACM_NATIVE_BE 0
 #else
 #define ACM_NATIVE_BE 1
 #endif
 
-typedef struct AcmDec {
-	GstElement element;
-	GstPad *sinkpad, *srcpad;
+/* default request length */
+#define REQLEN (4 * 1024)
 
+/* Property ID for AcmDec->location */
+#define PROP_LOCATION 1
+
+/*
+ * AcmDec struct
+ */
+typedef struct AcmDec {
+	GstPushSrc pushsrc;
+
+	gchar *location;
 	ACMStream *ctx;
 	int seek_to; /* sample nr or -1 */
 	int flush_pending;
-	GstByteStream *bs;
 } AcmDec;
 
 typedef struct AcmDecClass {
-	GstElementClass parent_class;
+	GstPushSrcClass parent_class;
 } AcmDecClass;
 
+/*
+ * define element class
+ */
 
-static GType acmdec_get_type(void);
-
-#define TYPE_ACMDEC        acmdec_get_type()
+#define TYPE_ACMDEC        (acmdec_get_type())
 #define ACMDEC(o)          G_TYPE_CHECK_INSTANCE_CAST((o),TYPE_ACMDEC,AcmDec)
-#define ACMDEC_CLASS(k)    G_TYPE_CHECK_CLASS_CAST((k),TYPE_ACMDEC,AcmDec)
+#define ACMDEC_CLASS(k)    G_TYPE_CHECK_CLASS_CAST((k),TYPE_ACMDEC,AcmDecClass)
 #define IS_ACMDEC(o)       G_TYPE_CHECK_INSTANCE_TYPE((o),TYPE_ACMDEC)
 #define IS_ACMDEC_CLASS(c) G_TYPE_CHECK_CLASS_TYPE((c),TYPE_ACMDEC)
 
-static GstElementClass *parent_class = NULL;
+GST_BOILERPLATE (AcmDec, acmdec, GstPushSrc, GST_TYPE_PUSH_SRC);
 
-static GstStaticPadTemplate sink_factory =
-GST_STATIC_PAD_TEMPLATE(
-	"sink",	GST_PAD_SINK, GST_PAD_ALWAYS,
-	GST_STATIC_CAPS("audio/x-acm")
+static GstElementDetails acmdec_details = {
+	"acmdec",
+	"Codec/Decoder/Audio",
+	"InterPlay ACM Audio decoder",
+	"Marko Kreen <markokr@gmail.com>"
+};
+
+/*
+ * define plugin
+ */
+
+static gboolean acmdec_plugin_init(GstPlugin *plugin)
+{
+	return gst_element_register(plugin, "acmdec",
+				    GST_RANK_PRIMARY, TYPE_ACMDEC);
+}
+
+GST_PLUGIN_DEFINE(
+	GST_VERSION_MAJOR, GST_VERSION_MINOR,
+	"acmdec",
+	"InterPlay ACM Audio Format",
+	acmdec_plugin_init,
+	LIBACM_VERSION,
+	"LGPL",
+	"libacm",
+	"http://libacm.berlios.de/"
 );
+
+/*
+ * pad format details
+ */
 
 #define BASE_CAPS \
 	"audio/x-raw-int, " \
@@ -89,65 +121,46 @@ GST_STATIC_PAD_TEMPLATE(
 			"channels = (int) [ 1, 2 ]")
 );
 
-static GstElementDetails acmdec_details = {
-	"acmdec",
-	"Codec/Decoder/Audio",
-	"InterPlay ACM Audio decoder",
-	"<markokr@gmail.com>"
-};
+/*
+ * get/set properties
+ */
 
-static void send_discont(AcmDec *acm)
+static void acmdec_get_property(GObject *obj, guint prop_id,
+				GValue *value, GParamSpec *pspec)
 {
-	GstFormat fmt;
-	GstEvent *event;
-	gint64 time = 64, bytes = 64, samples = 0;
-	if (acm->ctx) {
-		const ACMInfo *inf = acm_info(acm->ctx);
-		samples = acm_pcm_total(acm->ctx) / inf->channels;
-		
-		fmt = GST_FORMAT_TIME;
-		gst_pad_convert(acm->srcpad, GST_FORMAT_DEFAULT, samples,
-				&fmt, &time);
-		
-		fmt = GST_FORMAT_BYTES;
-		gst_pad_convert(acm->srcpad, GST_FORMAT_DEFAULT, samples,
-				&fmt, &bytes);
-	}
-	event = gst_event_new_discontinuous(FALSE,
-			GST_FORMAT_TIME, time,
-			GST_FORMAT_BYTES, bytes,
-			GST_FORMAT_DEFAULT, samples,
-			NULL);
-	gst_pad_push(acm->srcpad, GST_DATA(event));
-}
+	AcmDec *acm = ACMDEC(obj);
 
-static int handle_read_event(AcmDec *acm, GstEvent *event)
-{
-	int retry = 0;
-
-	if (!event) {
-		GST_ELEMENT_ERROR(acm, RESOURCE, READ, (NULL), (NULL));
-		return 0;
-	}
-
-	switch (GST_EVENT_TYPE(event)) {
-	case GST_EVENT_INTERRUPT:
-	case GST_EVENT_EOS:
-		gst_event_unref(event);
-		break;
-	case GST_EVENT_DISCONTINUOUS:
-		send_discont(acm);
-	case GST_EVENT_FLUSH:
-		gst_event_unref(event);
-		retry = 1;
+	GST_OBJECT_LOCK(acm);
+	switch (prop_id) {
+	case PROP_LOCATION:
+		if (acm->location)
+			g_value_set_string(value, acm->location);
 		break;
 	default:
-		gst_pad_event_default(acm->srcpad, event);
-		break;
+		G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
 	}
-	return retry;
+	GST_OBJECT_UNLOCK(acm);
 }
 
+static void acmdec_set_property(GObject *obj, guint prop_id,
+				const GValue *value, GParamSpec *pspec)
+{
+	AcmDec *acm = ACMDEC(obj);
+
+	GST_OBJECT_LOCK(acm);
+	switch (prop_id) {
+	case PROP_LOCATION:
+		if (acm->location)
+			g_free(acm->location);
+		acm->location = g_value_dup_string(value);
+		break;
+	default:
+		G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
+	}
+	GST_OBJECT_UNLOCK(acm);
+}
+
+#if 0
 static int acmio_read(void *dst, int size, int n, void *arg)
 {
 	int res;
@@ -173,7 +186,9 @@ retry:
 	}
 	return res;
 }
+#endif
 
+#if 0
 static int acmio_seek(void *arg, int offset, int whence)
 {
 	int res, tmp;
@@ -194,7 +209,9 @@ static int acmio_get_length(void *arg)
 	AcmDec *acm = ACMDEC(arg);
 	return gst_bytestream_length(acm->bs);
 }
+#endif
 
+#if 0
 static gboolean acmdec_stream_init(AcmDec *acm)
 {
 	int res;
@@ -222,19 +239,9 @@ static gboolean acmdec_stream_init(AcmDec *acm)
 	gst_caps_free(caps);
 	return res;
 }
+#endif
 
-static void acmdec_stream_close(AcmDec *acm)
-{
-	if (acm->ctx) {
-		acm_close(acm->ctx);
-		acm->ctx = NULL;
-	}
-	if (acm->bs) {
-		gst_bytestream_destroy(acm->bs);
-		acm->bs = NULL;
-	}
-}
-
+#if 0
 static void handle_seek(AcmDec *acm)
 {
 	int res;
@@ -251,7 +258,9 @@ static void handle_seek(AcmDec *acm)
 	acm->flush_pending = 0;
 	acm->seek_to = -1;
 }
+#endif
 
+#if 0
 static void acmdec_loop(GstElement *elem)
 {
 	AcmDec *acm = ACMDEC(elem);
@@ -306,7 +315,9 @@ static void acmdec_loop(GstElement *elem)
 
 	gst_pad_push(acm->srcpad, GST_DATA(buf));
 }
+#endif
 
+#if 0
 static GstElementStateReturn acmdec_change_state(GstElement *elem)
 {
 	AcmDec *acm = ACMDEC(elem);
@@ -329,7 +340,9 @@ static GstElementStateReturn acmdec_change_state(GstElement *elem)
 
 	return GST_STATE_SUCCESS;	
 }
+#endif
 
+#if 0
 #define SEEK_FLAGS ( \
 	GST_SEEK_METHOD_SET | GST_SEEK_METHOD_CUR | GST_SEEK_METHOD_END | \
 	GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH )
@@ -385,43 +398,9 @@ out:
 	gst_event_unref(event);
 	return res;
 }
+#endif
 
-static const GstQueryType *acmdec_get_query_types(GstPad *pad)
-{
-	static const GstQueryType query_types[] = {
-		GST_QUERY_TOTAL,
-		GST_QUERY_POSITION,
-		(GstQueryType) 0
-	};
-	return query_types;
-}
-
-static gboolean acmdec_src_query(GstPad *pad, GstQueryType type,
-				 GstFormat *format, gint64 *value)
-{
-  	gint64 srcval;
-	AcmDec *acm = ACMDEC(gst_pad_get_parent(pad));
-
-	if (!acm->ctx)
-		return FALSE;
-
-	switch (type) {
-	case GST_QUERY_TOTAL:
-		srcval = acm_pcm_total(acm->ctx);
-		break;
-	case GST_QUERY_POSITION:
-		if (acm->seek_to >= 0)
-			srcval = acm->seek_to;
-		else
-			srcval = acm_pcm_tell(acm->ctx);
-		break;
-	default:
-		return FALSE;
-	}
-
-	return gst_pad_convert(pad, GST_FORMAT_DEFAULT, srcval, format, value);
-}
-
+#if 0
 static const GstFormat *acmdec_get_formats(GstPad *pad)
 {
 	static const GstFormat formats[] = {
@@ -496,91 +475,190 @@ static gboolean acmdec_src_convert(GstPad *pad,
 
 	return TRUE;
 }
+#endif
 
-static void acmdec_obj_init(AcmDec *acm)
+#if 0
+/*
+ * Query stuff.
+ */
+
+static const GstQueryType *acmdec_get_query_types(GstPad *pad)
 {
-      	GST_FLAG_SET(acm, GST_ELEMENT_EVENT_AWARE);
+	static const GstQueryType query_types[] = {
+		GST_QUERY_TOTAL,
+		GST_QUERY_POSITION,
+		(GstQueryType) 0
+	};
+	return query_types;
+}
 
-	/* init sinkpad */
-	acm->sinkpad = gst_pad_new_from_template(
-			gst_static_pad_template_get(&sink_factory), "sink");
-	gst_element_add_pad(GST_ELEMENT(acm), acm->sinkpad);
-	
-	/* init srcpad */
-	acm->srcpad = gst_pad_new_from_template(
-			gst_static_pad_template_get(&src_factory), "src");
-	/* seeking support */
-	gst_pad_set_event_function(acm->srcpad, acmdec_src_event);
-	gst_pad_set_event_mask_function(acm->srcpad, acmdec_get_event_masks);
-	/* stream info */
-	gst_pad_set_query_function(acm->srcpad, acmdec_src_query);
- 	gst_pad_set_query_type_function(acm->srcpad, acmdec_get_query_types);
-	/* info val conversion */
-	gst_pad_set_formats_function(acm->srcpad, acmdec_get_formats);
-	gst_pad_set_convert_function(acm->srcpad, acmdec_src_convert);
-	/* promise to set caps later */
-	gst_pad_use_explicit_caps(acm->srcpad);
-	/* add it */
-	gst_element_add_pad(GST_ELEMENT(acm), acm->srcpad);
+static gboolean acmdec_src_query(GstPad *pad, GstQueryType type,
+				 GstFormat *format, gint64 *value)
+{
+  	gint64 srcval;
+	AcmDec *acm = ACMDEC(gst_pad_get_parent(pad));
 
-	/* set decoder loop */
-	gst_element_set_loop_function(GST_ELEMENT(acm), acmdec_loop);
+	if (!acm->ctx)
+		return FALSE;
 
+	switch (type) {
+	case GST_QUERY_TOTAL:
+		srcval = acm_pcm_total(acm->ctx);
+		break;
+	case GST_QUERY_POSITION:
+		if (acm->seek_to >= 0)
+			srcval = acm->seek_to;
+		else
+			srcval = acm_pcm_tell(acm->ctx);
+		break;
+	default:
+		return FALSE;
+	}
+
+	return gst_pad_convert(pad, GST_FORMAT_DEFAULT, srcval, format, value);
+}
+#endif
+
+/*
+ * start/stop/produce sound
+ */
+
+static gboolean acmdec_start(GstBaseSrc *base)
+{
+	int res;
+	AcmDec *acm = ACMDEC(base);
+
+	if (!acm->location || !acm->location[0]) {
+		GST_ELEMENT_ERROR(acm, RESOURCE, OPEN_READ,
+				  ("No location specified"), (NULL));
+		return FALSE;
+	}
+
+	res = acm_open_file(&acm->ctx, acm->location);
+	if (res < 0) {
+		GST_ELEMENT_ERROR(acm, RESOURCE, OPEN_READ,
+				  ("Cannot open file"), (NULL));
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static gboolean acmdec_stop(GstBaseSrc *base)
+{
+	AcmDec *acm = ACMDEC(base);
+
+	if (acm->ctx) {
+		acm_close(acm->ctx);
+		acm->ctx = NULL;
+	}
+	return TRUE;
+}
+
+static GstFlowReturn acmdec_create(GstPushSrc *psrc, GstBuffer **buf)
+{
+	AcmDec *acm = ACMDEC(psrc);
+	GstBaseSrc *base = GST_BASE_SRC(acm);
+	void *data;
+
+	int need_bytes, blocksize, got;
+
+	GST_OBJECT_LOCK (base);
+	blocksize = base->blocksize;
+	GST_OBJECT_UNLOCK (base);
+
+	need_bytes = blocksize;
+
+	*buf = gst_buffer_new_and_alloc (need_bytes);
+	data = GST_BUFFER_DATA (*buf);
+	GST_BUFFER_SIZE (*buf) = 0;
+
+	got = acm_read(acm->ctx, data, need_bytes, ACM_NATIVE_BE, 2, 1);
+	if (got <= 0) {
+		gst_buffer_unref (*buf);
+		*buf = NULL;
+		return GST_FLOW_UNEXPECTED;
+	}
+	GST_BUFFER_SIZE (*buf) = got;
+
+	gst_buffer_set_caps (*buf, GST_PAD_CAPS (GST_BASE_SRC_PAD (acm)));
+
+	return GST_FLOW_OK;
+}
+
+/*
+ * Object initialization
+ */
+
+static void acmdec_init(AcmDec *acm, AcmDecClass *klass)
+{
+	GstBaseSrc *base = GST_BASE_SRC(acm);
+
+	acm->location = NULL;
 	acm->ctx = NULL;
 	acm->seek_to = -1;
-	acm->bs = NULL;
 	acm->flush_pending = 0;
+
+	gst_pad_set_query_function (base->srcpad, GST_DEBUG_FUNCPTR (acmdec_src_query));
+	gst_pad_set_query_type_function (base->srcpad, GST_DEBUG_FUNCPTR (acmdec_get_query_types));
+	base->blocksize = 2048; // ??
 }
 
-static void acmdec_dispose(GObject *obj)
+static void acmdec_finalize(GObject *obj)
 {
 	AcmDec *acm = ACMDEC(obj);
+	GObjectClass *gobj_parent = G_OBJECT_CLASS(parent_class);
 
-	acmdec_stream_close(acm);
+	if (acm->location) {
+		g_free(acm->location);
+		acm->location = NULL;
+	}
 
-	G_OBJECT_CLASS(parent_class)->dispose(obj);
+	if (acm->ctx) {
+		acm_close(acm->ctx);
+		acm->ctx = NULL;
+	}
+
+	if (gobj_parent->finalize)
+		gobj_parent->finalize(obj);
 }
 
-static void acmdec_class_init(AcmDecClass *klass)
+/*
+ * Class initialization
+ */
+
+static void acmdec_class_init(AcmDecClass *acm_class)
 {
-	parent_class = g_type_class_ref(GST_TYPE_ELEMENT);
+	GObjectClass *gobj_class = G_OBJECT_CLASS(acm_class);
+	GstBaseSrcClass *bsrc_class = GST_BASE_SRC_CLASS(acm_class);
+	GstPushSrcClass *push_class = GST_PUSH_SRC_CLASS(acm_class);
 	
-	G_OBJECT_CLASS(klass)->dispose = acmdec_dispose;
+	gobj_class->finalize = GST_DEBUG_FUNCPTR (acmdec_finalize);
+	gobj_class->set_property = GST_DEBUG_FUNCPTR (acmdec_set_property);
+	gobj_class->get_property = GST_DEBUG_FUNCPTR (acmdec_get_property);
 	
-	GST_ELEMENT_CLASS(klass)->change_state = acmdec_change_state;
+	bsrc_class->start = GST_DEBUG_FUNCPTR (acmdec_start);
+	bsrc_class->stop = GST_DEBUG_FUNCPTR (acmdec_stop);
+
+	push_class->create = GST_DEBUG_FUNCPTR (acmdec_create);
+
+	g_object_class_install_property(gobj_class, PROP_LOCATION,
+		g_param_spec_string("location", "File location",
+				    "Location to the file to read",
+				    NULL, G_PARAM_READWRITE));
 }
 
-static void acmdec_base_init(AcmDecClass *klass)
+static void acmdec_base_init(gpointer klass_arg)
 {
+	AcmDecClass *klass = ACMDEC_CLASS(klass_arg);
        	GstElementClass *element_class = GST_ELEMENT_CLASS(klass);
+
 	gst_element_class_add_pad_template(element_class,
 			gst_static_pad_template_get(&src_factory));
-	gst_element_class_add_pad_template(element_class,
-			gst_static_pad_template_get(&sink_factory));
 	gst_element_class_set_details(element_class, &acmdec_details);
 }
 
-static const GTypeInfo acmdec_class_info = {
-	sizeof(AcmDecClass),			/* class_size */
-	(GBaseInitFunc)acmdec_base_init,	/* base_init */
-	NULL,					/* base_finalize */
-	(GClassInitFunc) acmdec_class_init,	/* class_init */
-	NULL,					/* class_finalize */
-	NULL,					/* class_data */
-	sizeof(AcmDec),				/* instance_size */
-	0,					/* n_prealloc */
-	(GInstanceInitFunc)acmdec_obj_init,	/* instance_init */
-};
-
-static GType acmdec_get_type(void)
-{
-	static GType code = 0;
-    	if (!code)
-		code = g_type_register_static(GST_TYPE_ELEMENT,
-			"GstAcmDec", &acmdec_class_info, 0);
-	return code;
-}
-
+#if 0
 static void acmdec_detect_file(GstTypeFind *find, gpointer junk)
 {
 	guint8 *buf;
@@ -595,36 +673,5 @@ static void acmdec_detect_file(GstTypeFind *find, gpointer junk)
 	caps = gst_static_caps_get(&__caps);
 	gst_type_find_suggest(find, GST_TYPE_FIND_MAXIMUM, caps);
 }
-
-static gboolean acmdec_plugin_init(GstPlugin *plugin)
-{
-	static char *ext_list[] = {"acm", NULL};
-	gboolean res;
-	GstCaps *caps;
-
-	if (!gst_library_load("gstbytestream"))
-		return FALSE;
-
-	res = gst_element_register(plugin, "acmdec",
-				   GST_RANK_PRIMARY, TYPE_ACMDEC);
-	if (!res)
-		return FALSE;
-
-	caps = gst_caps_new_simple("audio/x-acm", NULL);
-	res = gst_type_find_register(plugin, "audio/x-acm", GST_RANK_PRIMARY,
-			acmdec_detect_file, ext_list, caps, NULL);
-	
-	return res;
-}
-
-GST_PLUGIN_DEFINE(
-	GST_VERSION_MAJOR, GST_VERSION_MINOR,
-	"acmdec",
-	"InterPlay ACM Audio Format",
-	acmdec_plugin_init,
-	LIBACM_VERSION,
-	"GPL",
-	"libacm",
-	"http://libacm.berlios.de/"
-);
+#endif
 
