@@ -79,7 +79,6 @@ static Tuple *acmx_get_song_tuple(gchar * filename)
 	const ACMInfo *info;
 	int err;
 	Tuple *tup = NULL;
-	int dur;
 	char buf[512];
 	gchar *title;
 
@@ -158,7 +157,6 @@ static void play_file(InputPlayback *pback)
 {
 	gchar *filename = pback->filename;
 	gchar *name;
-	gulong ftime;
 	gint res;
 	ACMStream *acm;
 	const ACMInfo *info;
