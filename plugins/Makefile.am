@@ -41,6 +41,6 @@ audacious_acm_la_LDFLAGS = $(AUDACIOUS_LIBS) -module -avoid-version
 
 acmdec_gst10_la_SOURCES = plugin-gstreamer.c
 acmdec_gst10_la_CPPFLAGS = $(GST10_CFLAGS) $(acm_cpp)
-acmdec_gst10_la_LIBADD = $(acm_lib)
+acmdec_gst10_la_LIBADD = $(acm_lib) -lgstbase-0.10
 acmdec_gst10_la_LDFLAGS = $(GST10_LIBS) -module -avoid-version
 
