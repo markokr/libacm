@@ -48,12 +48,6 @@ static char * makefn(const char *fn, const char *ext)
 	return dstfn;
 }
 
-static int _close_file(void *arg)
-{
-	FILE *f = (FILE *)arg;
-	return fclose(f);
-}
-
 #define put_word(p, val) do { \
 		*p++ = val & 0xFF; \
 		*p++ = (val >> 8) & 0xFF; \
@@ -298,7 +292,6 @@ int main(int argc, char *argv[])
 	int cmd_chg_channels = 0;
 	int cmd_info = 0;
 	int cf_set_chans = 0;
-	int test_arg = 0;
 
 	while ((c = getopt(argc, argv, "diMSqhrmsnvo:")) != -1) {
 		switch (c) {
