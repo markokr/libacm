@@ -105,7 +105,7 @@ static int load_bits(ACMStream *acm)
 	return 0;
 }
 
-static int get_bits_reload(ACMStream *acm, int bits)
+static int get_bits_reload(ACMStream *acm, unsigned bits)
 {
 	int got, err;
 	unsigned data, b_data, b_avail;
@@ -626,7 +626,7 @@ static int decode_block(ACMStream *acm)
  * Output formats
  ******************************/
 
-static char *out_s16le(int *src, char *dst, int n, int shift)
+static unsigned char *out_s16le(int *src, unsigned char *dst, unsigned n, unsigned shift)
 {
 	while (n--) {
 		int val = *src++ >> shift;
@@ -636,7 +636,7 @@ static char *out_s16le(int *src, char *dst, int n, int shift)
 	return dst;
 }
 
-static char *out_s16be(int *src, char *dst, int n, int shift)
+static unsigned char *out_s16be(int *src, unsigned char *dst, unsigned n, unsigned shift)
 {
 	while (n--) {
 		int val = *src++ >> shift;
@@ -646,7 +646,7 @@ static char *out_s16be(int *src, char *dst, int n, int shift)
 	return dst;
 }
 
-static char *out_u16le(int *src, char *dst, int n, int shift)
+static unsigned char *out_u16le(int *src, unsigned char *dst, unsigned n, unsigned shift)
 {
 	while (n--) {
 		int val = (*src++ >> shift) + 0x8000;
@@ -656,7 +656,7 @@ static char *out_u16le(int *src, char *dst, int n, int shift)
 	return dst;
 }
 
-static char *out_u16be(int *src, char *dst, int n, int shift)
+static unsigned char *out_u16be(int *src, unsigned char *dst, unsigned n, unsigned shift)
 {
 	while (n--) {
 		int val = (*src++ >> shift) + 0x8000;
@@ -666,10 +666,10 @@ static char *out_u16be(int *src, char *dst, int n, int shift)
 	return dst;
 }
 
-static int output_values(int *src, char *dst, int n,
+static int output_values(int *src, unsigned char *dst, int n,
 		int acm_level, int bigendianp, int wordlen, int sgned)
 {
-	char *res = NULL;
+	unsigned char *res = NULL;
 	if (wordlen == 2) {
 		if (bigendianp == 0) {
 			if (sgned)
@@ -764,7 +764,7 @@ err_out:
 	return err;
 }
 
-int acm_read(ACMStream *acm, char *dst, int numbytes,
+int acm_read(ACMStream *acm, void *dst, int numbytes,
 		 int bigendianp, int wordlen, int sgned)
 {
 	int avail, gotbytes = 0, err;

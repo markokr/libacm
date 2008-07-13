@@ -88,7 +88,7 @@ typedef struct ACMStream ACMStream;
 
 /* decode.c */
 int acm_open_decoder(ACMStream **res, void *io_arg, acm_io_callbacks io);
-int acm_read(ACMStream *acm, char *buf, int nbytes,
+int acm_read(ACMStream *acm, void *buf, int nbytes,
 		int bigendianp, int wordlen, int sgned);
 void acm_close(ACMStream *acm);
 
@@ -103,7 +103,7 @@ int acm_pcm_total(ACMStream *acm);
 int acm_pcm_tell(ACMStream *acm);
 int acm_time_total(ACMStream *acm);
 int acm_time_tell(ACMStream *acm);
-int acm_read_loop(ACMStream *acm, char *dst, int len,
+int acm_read_loop(ACMStream *acm, void *dst, int len,
 		int bigendianp, int wordlen, int sgned);
 int acm_seek_pcm(ACMStream *acm, int pcm_pos);
 int acm_seek_time(ACMStream *acm, int pos_ms);
