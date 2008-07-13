@@ -116,9 +116,15 @@ int acm_open_file(ACMStream **res, const char *filename)
 /*
  * utility functions
  */
+
 static int pcm2time(ACMStream *acm, int pcm)
 {
 	return ((10 * pcm) / acm->info.rate) * 100;
+}
+
+static int time2pcm(ACMStream acm, int time_ms)
+{
+	return (time_ms / 100) * (acm->info.rate / 10);
 }
 
 /*
@@ -181,10 +187,13 @@ int acm_raw_total(ACMStream *acm)
 /*
  * seeking
  */
+
 int acm_seek_time(ACMStream *acm, int time_ms)
 {
-	int pos_pcm = (time_ms / 100) * (acm->info.rate / 10);
-	return acm_seek_pcm(acm, pos_pcm);
+	int res = acm_seek_pcm(acm, time2pcm(time_ms));
+	if (res <= 0)
+		return res;
+	return pcm2time(res);
 }
 
 int acm_seek_pcm(ACMStream *acm, int pcm_pos)
@@ -222,7 +231,7 @@ int acm_seek_pcm(ACMStream *acm, int pcm_pos)
 		if (res < 1)
 			break;
 	}
-	return acm->stream_pos * acm->info.channels;
+	return acm->stream_pos / acm->info.channels;
 }
 
 /*
