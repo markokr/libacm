@@ -119,12 +119,16 @@ int acm_open_file(ACMStream **res, const char *filename)
 
 static int pcm2time(ACMStream *acm, int pcm)
 {
-	return ((10 * pcm) / acm->info.rate) * 100;
+	long long lpcm = pcm, res = lpcm * 1000 / acm->info.rate;
+	return res;
+	/* return ((10 * pcm) / acm->info.rate) * 100; */
 }
 
 static int time2pcm(ACMStream *acm, int time_ms)
 {
-	return (time_ms / 100) * (acm->info.rate / 10);
+	long long ltime = time_ms, res = ltime * acm->info.rate / 1000;
+	return res;
+	/* return (time_ms / 100) * (acm->info.rate / 10); */
 }
 
 /*
