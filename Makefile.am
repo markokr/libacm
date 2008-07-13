@@ -17,14 +17,13 @@ WSTRIP = i586-mingw32msvc-strip
 WCFLAGS = -O2 -Wall -I$(sdir) -I$(pdir)
 
 WINAMP_SRCS = $(pdir)/plugin-winamp.c $(sdir)/util.c $(sdir)/decode.c
-TOOL_SRCS = $(sdir)/acmtool.c $(sdir)/decode.c $(sdir)/util.c \
-	    $(sdir)/encode.c $(sdir)/packer.c $(sdir)/subband.c
+TOOL_SRCS = $(sdir)/acmtool.c $(sdir)/decode.c $(sdir)/util.c
 
 in_libacm.dll: $(WINAMP_SRCS) $(pdir)/winamp.h $(sdir)/libacm.h
 	$(WCC) $(WCFLAGS) -shared -o $@ $(WINAMP_SRCS)
 	$(WSTRIP) $@
 
-acmtool.exe: $(TOOL_SRCS) $(sdir)/libacm.h $(sdir)/packer.h $(sdir)/subband.h
+acmtool.exe: $(TOOL_SRCS) $(sdir)/libacm.h
 	$(WCC) $(WCFLAGS) -o $@ $(TOOL_SRCS)
 	$(WSTRIP) $@
 
