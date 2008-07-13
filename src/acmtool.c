@@ -113,8 +113,7 @@ static void show_header(const char *fn, ACMStream *acm)
 	inf = acm_info(acm);
 	kbps = acm_bitrate(acm) / 1000;
 	printf("%s: Samples:%d Chans:%d Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
-			fn, acm_pcm_total(acm), inf->channels,
-			inf->rate,
+			fn, acm_pcm_total(acm), acm_channels(acm), acm_rate(acm),
 			inf->acm_level, inf->acm_rows, kbps);
 }
 
@@ -125,7 +124,6 @@ static void decode_file(const char *fn, const char *fn2)
 	int res, res2, buflen, err;
 	FILE *fo = NULL;
 	int bytes_done = 0, total_bytes;
-	const ACMInfo *info;
 
 	err = acm_open_file(&acm, fn);
 	if (err < 0) {
@@ -133,8 +131,6 @@ static void decode_file(const char *fn, const char *fn2)
 		return;
 	}
 	show_header(fn, acm);
-
-	info = acm_info(acm);
 
 	if (!cf_no_output) {
 		fo = fopen(fn2, "wb");
@@ -158,7 +154,7 @@ static void decode_file(const char *fn, const char *fn2)
 	buflen = 16*1024;
 	buf = malloc(buflen);
 
-	total_bytes = acm_pcm_total(acm) * info->channels * ACM_WORD;
+	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 	
 	while (bytes_done < total_bytes) {
 		res = acm_read_loop(acm, buf, buflen/2, 0,2,1);

@@ -140,6 +140,16 @@ const ACMInfo *acm_info(ACMStream *acm)
 	return &acm->info;
 }
 
+int acm_rate(ACMStream *acm)
+{
+	return acm->info.rate;
+}
+
+int acm_channels(ACMStream *acm)
+{
+	return acm->info.channels;
+}
+
 int acm_seekable(ACMStream *acm)
 {
 	return acm->data_len > 0;

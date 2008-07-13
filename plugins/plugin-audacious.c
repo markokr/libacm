@@ -123,13 +123,12 @@ static void acmx_seek(InputPlayback *pback, gint secs)
 static void read_and_play(ACMStream *acm, InputPlayback *pback, gchar *buf)
 {
 	int got_bytes, need_bytes;
-	const ACMInfo *info = acm_info(acm);
 
-	need_bytes = BLK_SAMPLES * info->channels * ACM_WORD;
+	need_bytes = BLK_SAMPLES * acm_channels(acm) * ACM_WORD;
 	got_bytes = acm_read_loop(acm, buf, need_bytes, 0, 2, 1);
 	if (got_bytes > 0) {
 		pback->plugin->add_vis_pcm(pback->output->written_time(),
-			FMT_S16_LE, info->channels, got_bytes, buf);
+			FMT_S16_LE, acm_channels(acm), got_bytes, buf);
 
 		while (pback->output->buffer_free() < got_bytes
 				&& pback->playing && acmx_seek_to == -1)
@@ -159,20 +158,18 @@ static void play_file(InputPlayback *pback)
 	gchar *name;
 	gint res;
 	ACMStream *acm;
-	const ACMInfo *info;
 	int err;
 	gchar *buf;
 	
 	if ((err = acmx_open_vfs(&acm, filename)) < 0)
 		return;
 
-	info = acm_info(acm);
         name = get_title(filename);
         pback->set_params(pback, name, acm_time_total(acm), acm_bitrate(acm),
-			  info->rate, info->channels);
+			  acm_rate(acm), acm_channels(acm));
 	g_free(name);
 
-	res = pback->output->open_audio(FMT_S16_LE, info->rate, info->channels);
+	res = pback->output->open_audio(FMT_S16_LE, acm_rate(acm), acm_channels(acm));
 	if (res == 0) {
 		pback->error = TRUE;
 		acm_close(acm);
@@ -182,7 +179,7 @@ static void play_file(InputPlayback *pback)
 	/*
 	 * main loop
 	 */
-	buf = g_malloc0(BLK_SAMPLES * ACM_WORD * info->channels);
+	buf = g_malloc0(BLK_SAMPLES * ACM_WORD * acm_channels(acm));
 	while (pback->playing) {
 		if (acmx_seek_to >= 0)
 			try_seeking(acm, pback);

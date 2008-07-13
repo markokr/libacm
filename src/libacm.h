@@ -97,6 +97,8 @@ int acm_open_file(ACMStream **acm, const char *filename);
 const ACMInfo *acm_info(ACMStream *acm);
 int acm_seekable(ACMStream *acm);
 int acm_bitrate(ACMStream *acm);
+int acm_rate(ACMStream *acm);
+int acm_channels(ACMStream *acm);
 int acm_raw_total(ACMStream *acm);
 int acm_raw_tell(ACMStream *acm);
 int acm_pcm_total(ACMStream *acm);
