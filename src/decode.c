@@ -40,6 +40,9 @@ static int load_buf(ACMStream *acm)
 {
 	int res = 0;
 
+	if (acm->file_eof)
+		return 0;
+
 	acm->buf_start_ofs += acm->buf_size;
 
 	if (acm->io.read_func != NULL)
@@ -49,7 +52,14 @@ static int load_buf(ACMStream *acm)
 	if (res < 0)
 		return ACM_ERR_READ_ERR;
 
-	acm->buf_size = res;
+	if (res == 0) {
+		acm->file_eof = 1;
+		/* add single zero byte */
+		acm->buf[0] = 0;
+		acm->buf_size = 1;
+	} else {
+		acm->buf_size = res;
+	}
 	acm->buf_pos = 0;
 	return 0;
 }
@@ -581,11 +591,13 @@ static int decode_block(ACMStream *acm)
 	/* read header */
 	GET_BITS_NOERR(pwr, acm, 4);
 	if (pwr < 0)
-		return -2;  /* expected eof? */
-	GET_BITS(val, acm, 16);
-	count = 1 << pwr;
+		return -2;  /* expected eof */
+	GET_BITS_NOERR(val, acm, 16);
+	if (val < 0)
+		return -2;  /* expected eof */
 
 	/* generate tables */
+	count = 1 << pwr;
 	for (i = 0, x = 0; i < count; i++) {
 		acm->midbuf[i] = x;
 		x += val;

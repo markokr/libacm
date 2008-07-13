@@ -80,6 +80,7 @@ struct ACMStream {
 	int *midbuf;			/* pointer into ampbuf */
 	/* result */
 	int block_ready;
+	int file_eof;
 	int stream_pos;			/* in words. absolute */
 	int block_pos;			/* in words, relative */
 };

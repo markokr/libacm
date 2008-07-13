@@ -199,7 +199,8 @@ int acm_seek_pcm(ACMStream *acm, int pcm_pos)
 
 		if (acm->io.seek_func(acm->io_arg,ACM_HEADER_LEN,SEEK_SET) < 0)
 			return ACM_ERR_NOT_SEEKABLE;
-		
+	
+		acm->file_eof = 0;
 		acm->buf_pos = 0;
  		acm->buf_size = 0;
 		acm->bit_avail = 0;
