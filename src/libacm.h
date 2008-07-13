@@ -66,7 +66,7 @@ struct ACMStream {
 
 	/* acm stream buffer */
 	unsigned char *buf;
-	int buf_max, buf_size, buf_pos, bit_avail;
+	unsigned buf_max, buf_size, buf_pos, bit_avail;
 	unsigned bit_data;
 	unsigned buf_start_ofs;
 

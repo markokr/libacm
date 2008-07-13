@@ -30,7 +30,7 @@
 
 #define ACM_EXPECTED_EOF -99
 
-typedef int (*filler_t)(ACMStream *acm, int ind, int n_col);
+typedef int (*filler_t)(ACMStream *acm, unsigned ind, unsigned col);
 
 /**************************************
  * Stream processing
@@ -206,7 +206,7 @@ static void generate_tables(void)
 
 /************ Fillers **********/
 
-static int f_zero(ACMStream *acm, int ind, int col)
+static int f_zero(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i;
 	for (i = 0; i < acm->info.acm_rows; i++)
@@ -215,13 +215,13 @@ static int f_zero(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_bad(ACMStream *acm, int ind, int col)
+static int f_bad(ACMStream *acm, unsigned ind, unsigned col)
 {
 	/* corrupt block? */
 	return ACM_ERR_CORRUPT;
 }
 
-static int f_linear(ACMStream *acm, int ind, int col)
+static int f_linear(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	int middle = 1 << (ind - 1);
@@ -233,7 +233,7 @@ static int f_linear(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k13(ACMStream *acm, int ind, int col)
+static int f_k13(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -259,7 +259,7 @@ static int f_k13(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k12(ACMStream *acm, int ind, int col)
+static int f_k12(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -277,7 +277,7 @@ static int f_k12(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k24(ACMStream *acm, int ind, int col)
+static int f_k24(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -304,7 +304,7 @@ static int f_k24(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k23(ACMStream *acm, int ind, int col)
+static int f_k23(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -322,7 +322,7 @@ static int f_k23(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k35(ACMStream *acm, int ind, int col)
+static int f_k35(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -358,7 +358,7 @@ static int f_k35(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k34(ACMStream *acm, int ind, int col)
+static int f_k34(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -384,7 +384,7 @@ static int f_k34(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k45(ACMStream *acm, int ind, int col)
+static int f_k45(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -412,7 +412,7 @@ static int f_k45(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_k44(ACMStream *acm, int ind, int col)
+static int f_k44(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -430,7 +430,7 @@ static int f_k44(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_t15(ACMStream *acm, int ind, int col)
+static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b, n1, n2, n3;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -452,7 +452,7 @@ static int f_t15(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_t27(ACMStream *acm, int ind, int col)
+static int f_t27(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b, n1, n2, n3;
 	for (i = 0; i < acm->info.acm_rows; i++) {
@@ -474,7 +474,7 @@ static int f_t27(ACMStream *acm, int ind, int col)
 	return 1;
 }
 
-static int f_t37(ACMStream *acm, int ind, int col)
+static int f_t37(ACMStream *acm, unsigned ind, unsigned col)
 {
 	int i, b, n1, n2;
 	for (i = 0; i < acm->info.acm_rows; i++) {
