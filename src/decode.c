@@ -28,6 +28,8 @@
 
 #define ACM_BUFLEN	(64*1024)
 
+#define ACM_EXPECTED_EOF -99
+
 typedef int (*filler_t)(ACMStream *acm, int ind, int n_col);
 
 /**************************************
@@ -153,6 +155,15 @@ static int get_bits_reload(ACMStream *acm, int bits)
 			goto err_out; \
 	} while (0)
 
+#define GET_BITS_EXPECT_EOF(res, acm, bits) do { \
+		GET_BITS_NOERR(res, acm, bits); \
+		if (res < 0) { \
+			if (res == ACM_ERR_UNEXPECTED_EOF) \
+				res = ACM_EXPECTED_EOF; \
+			return ret; \
+		} \
+	} while (0)
+
 /*************************************************
  * Table filling
  *************************************************/
@@ -189,8 +200,8 @@ static void generate_tables(void)
 
 /* IOW: (r * acm->subblock_len) + c */
 #define set_pos(acm, r, c, idx) do { \
-		int pos = (r << acm->info.acm_level) + c; \
-		acm->block[pos] = acm->midbuf[idx]; \
+		int _pos = ((r) << acm->info.acm_level) + (c); \
+		acm->block[_pos] = acm->midbuf[idx]; \
 	} while (0)
 
 /************ Fillers **********/
@@ -498,10 +509,7 @@ static int fill_block(ACMStream *acm)
 {
 	int i, err, ind;
 	for (i = 0; i < acm->info.acm_cols; i++) {
-		/* here eof => acm2wav */
-		GET_BITS_NOERR(ind, acm, 5);
-		if (ind < 0)
-			return -2;  /* expected eof? */
+		GET_BITS_EXPECT_EOF(ind, acm, 5);
 		err = filler_list[ind](acm, ind, i);
 		if (err < 0)
 			return err;
@@ -589,12 +597,8 @@ static int decode_block(ACMStream *acm)
 	acm->block_pos = 0;
 
 	/* read header */
-	GET_BITS_NOERR(pwr, acm, 4);
-	if (pwr < 0)
-		return -2;  /* expected eof */
-	GET_BITS_NOERR(val, acm, 16);
-	if (val < 0)
-		return -2;  /* expected eof */
+	GET_BITS_EXPECT_EOF(pwr, acm, 4);
+	GET_BITS_EXPECT_EOF(val, acm, 16);
 
 	/* generate tables */
 	count = 1 << pwr;
@@ -776,7 +780,7 @@ int acm_read(ACMStream *acm, char *dst, int numbytes,
 
 	if (!acm->block_ready) {
 		err = decode_block(acm);
-		if (err == -2)
+		if (err == ACM_EXPECTED_EOF)
 			return 0;
 		if (err < 0)
 			return err;
