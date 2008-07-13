@@ -139,10 +139,9 @@ static void setpan(int pan)
 
 static int read_and_play(char *buf) {
 	int pos_ms, blen, need_len, res, snum;
-	const ACMInfo *info = acm_info(in.acm);
 
 	/* check if buffer available */
-	blen = need_len = SBLOCK * info->channels * ACM_WORD;
+	blen = need_len = SBLOCK * acm_channels(in.acm) * ACM_WORD;
 	if (plugin->dsp_isactive())
 		need_len *= 2;
 	if (plugin->outMod->CanWrite() < need_len) {
@@ -154,17 +153,17 @@ static int read_and_play(char *buf) {
 	res = acm_read_loop(in.acm, buf, blen, 0,2,1);
 	if (res <= 0)
 		return 1;
-	snum = res / (info->channels * ACM_WORD);
+	snum = res / (acm_channels(in.acm) * ACM_WORD);
 	
 	/* vis seems ignored when dsp is on */
 	pos_ms = plugin->outMod->GetWrittenTime();
-	plugin->SAAddPCMData(buf, info->channels, ACM_WORD*8, pos_ms);
-	plugin->VSAAddPCMData(buf, info->channels, ACM_WORD*8, pos_ms);
+	plugin->SAAddPCMData(buf, acm_channels(in.acm), ACM_WORD*8, pos_ms);
+	plugin->VSAAddPCMData(buf, acm_channels(in.acm), ACM_WORD*8, pos_ms);
 	
 	/* apply effects if needed */
 	if (plugin->dsp_isactive()) {
 		snum = plugin->dsp_dosamples((short*)buf, snum, ACM_WORD*8,
-			info->channels, info->rate);
+					     acm_channels(in.acm), acm_rate(in.acm));
 	}
 	
 	/* output */
@@ -188,9 +187,8 @@ static DWORD WINAPI __stdcall decode_thread(void *arg)
 {
 	int eof = 0;
 	char *buf;
-	const ACMInfo *info = acm_info(in.acm);
 
-	buf = malloc(SBLOCK * info->channels * ACM_WORD);
+	buf = malloc(SBLOCK * acm_channels(in.acm) * ACM_WORD);
 
 	while (!dec_quit) {
 		if (in.seek_to >= 0)
@@ -217,15 +215,13 @@ static DWORD WINAPI __stdcall decode_thread(void *arg)
 static int play(char *fn)
 {
 	ACMStream *acm;
-	const ACMInfo *info;
 	DWORD thread_id;
 	int err, latency;
 
 	if ((err = acm_open_file(&acm, fn)) < 0)
 		return 1;
 
-	info = acm_info(acm);
-	latency = plugin->outMod->Open(info->rate, info->channels,
+	latency = plugin->outMod->Open(acm_rate(acm), acm_channels(acm),
 			ACM_WORD*8, -1,-1);
 	if (latency < 0) {
 		/* error opening device */
@@ -238,11 +234,11 @@ static int play(char *fn)
 	in.seek_to = -1;
 
 	plugin->SetInfo(acm_bitrate(acm) / 1000,
-			info->rate / 1000, info->channels, 1);
+			acm_rate(acm) / 1000, acm_channels(acm), 1);
 
 	/* initialize vis stuff */
-	plugin->SAVSAInit(latency, info->rate);
-	plugin->VSASetInfo(info->rate, info->channels);
+	plugin->SAVSAInit(latency, acm_rate(acm));
+	plugin->VSASetInfo(acm_rate(acm), acm_channels(acm));
 
 	/* set the output plug-ins default volume */
 	plugin->outMod->SetVolume(-666);
