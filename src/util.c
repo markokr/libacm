@@ -122,7 +122,7 @@ static int pcm2time(ACMStream *acm, int pcm)
 	return ((10 * pcm) / acm->info.rate) * 100;
 }
 
-static int time2pcm(ACMStream acm, int time_ms)
+static int time2pcm(ACMStream *acm, int time_ms)
 {
 	return (time_ms / 100) * (acm->info.rate / 10);
 }
@@ -190,10 +190,10 @@ int acm_raw_total(ACMStream *acm)
 
 int acm_seek_time(ACMStream *acm, int time_ms)
 {
-	int res = acm_seek_pcm(acm, time2pcm(time_ms));
+	int res = acm_seek_pcm(acm, time2pcm(acm, time_ms));
 	if (res <= 0)
 		return res;
-	return pcm2time(res);
+	return pcm2time(acm, res);
 }
 
 int acm_seek_pcm(ACMStream *acm, int pcm_pos)

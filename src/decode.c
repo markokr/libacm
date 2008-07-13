@@ -160,7 +160,7 @@ static int get_bits_reload(ACMStream *acm, int bits)
 		if (res < 0) { \
 			if (res == ACM_ERR_UNEXPECTED_EOF) \
 				res = ACM_EXPECTED_EOF; \
-			return ret; \
+			return res; \
 		} \
 	} while (0)
 
