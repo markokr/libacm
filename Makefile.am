@@ -28,7 +28,7 @@ acmtool.exe: $(TOOL_SRCS) $(sdir)/libacm.h
 	$(WSTRIP) $@
 
 clean-local:
-	rm -f in_libacm.dll acmtool.exe
+	rm -f in_libacm.dll acmtool.exe core core.*
 
 # shortcuts
 amp: in_libacm.dll
