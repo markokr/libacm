@@ -23,6 +23,8 @@
 #endif
 
 #include <sys/param.h>
+#include <sys/time.h>
+#include <time.h>
 #include <string.h>
 
 #include <gst/gst.h>
@@ -45,12 +47,15 @@
 
 #define ull unsigned long long
 
+typedef unsigned long long usec_t;
+#define USEC 1000000
+
+#define ACMDEC_SEEK_WAIT (USEC / 4)
 
 #define FN(f) GST_DEBUG_FUNCPTR(f)
 
 GST_DEBUG_CATEGORY_STATIC (acmdec_debug);
 #define GST_CAT_DEFAULT acmdec_debug
-
 
 /*
  * AcmDec struct
@@ -66,8 +71,8 @@ typedef struct AcmDec {
 	int fileofs;
 	gboolean discont;
 
-	int seek_to;      /* in pcm samples */
-	gboolean restart; /* if the stream should be rewinded */
+	int seek_to_pcm;
+	usec_t last_seek_event_time;
 } AcmDec;
 
 typedef struct AcmDecClass {
@@ -141,7 +146,7 @@ static GstStaticPadTemplate acmdec_src_template =
 GST_STATIC_PAD_TEMPLATE(
 	"src", GST_PAD_SRC, GST_PAD_ALWAYS,
 	GST_STATIC_CAPS(BASE_CAPS ", "
-			"rate = (int) [ 4000, 96000 ], "
+			"rate = (int) [ 4000, 48000 ], "
 			"channels = (int) [ 1, 2 ]")
 );
 
@@ -149,6 +154,13 @@ static GstStaticPadTemplate acmdec_sink_template =
 GST_STATIC_PAD_TEMPLATE (
 	"sink", GST_PAD_SINK, GST_PAD_ALWAYS,
 	GST_STATIC_CAPS ("audio/x-acm"));
+
+static usec_t get_real_time(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return USEC * (usec_t)tv.tv_sec + tv.tv_usec;
+}
 
 /*
  * Fire reader with gst_pad_pull_range()
@@ -296,8 +308,8 @@ static void acmdec_reset(AcmDec *acm)
 	}
 	acm->fileofs = 0;
 	acm->discont = FALSE;
-	acm->seek_to = -1;
-	acm->restart = FALSE;
+	acm->seek_to_pcm = -1;
+	acm->last_seek_event_time = 0;
 }
 
 static void acmdec_dispose(GObject *obj)
@@ -388,11 +400,13 @@ acmdec_src_query (GstPad *pad, GstQuery *query)
 
 	//GST_DEBUG_OBJECT(acm, "src_query: %s", GST_QUERY_TYPE_NAME (query));
 
+	GST_OBJECT_LOCK(acm);
+
 	switch (GST_QUERY_TYPE (query)) {
 	case GST_QUERY_POSITION:
 		gst_query_parse_position (query, &fmt, NULL);
-		if (acm->seek_to >= 0)
-			pcmval = acm->seek_to;
+		if (acm->seek_to_pcm >= 0)
+			pcmval = acm->seek_to_pcm;
 		else
 			pcmval = acm_pcm_tell(acm->ctx);
 		res = acmdec_convert(acm, GST_FORMAT_DEFAULT, pcmval, &fmt, &val);
@@ -416,19 +430,37 @@ acmdec_src_query (GstPad *pad, GstQuery *query)
 		res = gst_pad_query_default (pad, query);
 		break;
 	}
+	GST_OBJECT_UNLOCK(acm);
 
 	gst_object_unref (acm);
 	return res;
 }
 
-static gboolean do_seek(AcmDec *acm, GstEvent *event)
+static void acmdec_send_segment(AcmDec *acm, gboolean update)
+{
+	GstEvent *ev;
+	guint64 pcmpos, start, stop;
+
+	if (acm->seek_to_pcm >= 0)
+		pcmpos = acm->seek_to_pcm;
+	else
+		pcmpos = acm_pcm_tell(acm->ctx);
+	start = GST_SECOND * pcmpos / acm_rate(acm->ctx);
+	stop = GST_SECOND * acm_time_total(acm->ctx) / 1000;
+
+	update = FALSE;
+	ev = gst_event_new_new_segment(update, 1.0,
+				       GST_FORMAT_TIME, 0, stop, start);
+	gst_pad_push_event(acm->srcpad, ev);
+}
+
+static gboolean handle_seek(AcmDec *acm, GstEvent *event)
 {
 	GstFormat format, tformat;
 	gdouble rate;
 	GstSeekFlags flags;
 	GstSeekType cur_type, stop_type;
-	gint64 cur, stop;
-	gint64 tstop;
+	gint64 cur, stop, tstop, old_seek;
 
 	gst_event_parse_seek (event, &rate, &format, &flags, &cur_type, &cur,
 			      &stop_type, &stop);
@@ -460,6 +492,10 @@ static gboolean do_seek(AcmDec *acm, GstEvent *event)
 	if (!acmdec_convert (acm, format, cur, &tformat, &tstop))
 		return FALSE;
 
+	if (tstop != acm_rate(acm->ctx) * cur / GST_SECOND) {
+		GST_ERROR_OBJECT(acm, "do_seek: bad conversion");
+	}
+
 	GST_DEBUG_OBJECT(acm, "do_seek: newpos=%llu curpos=%llu", tstop, (ull)acm_pcm_tell(acm->ctx));
 
 	/*
@@ -467,10 +503,12 @@ static gboolean do_seek(AcmDec *acm, GstEvent *event)
 	 */
 
 	GST_OBJECT_LOCK(acm);
-	if (tstop <= acm_pcm_tell(acm->ctx))
-		acm->restart = TRUE;
-	acm->seek_to = tstop;
+	old_seek = acm->seek_to_pcm;
+	acm->seek_to_pcm = tstop;
+	acm->last_seek_event_time = get_real_time();
 	GST_OBJECT_UNLOCK(acm);
+
+	//acmdec_send_segment(acm, TRUE);
 
 	return TRUE;
 }
@@ -500,7 +538,7 @@ static gboolean acmdec_src_event(GstPad *pad, GstEvent *event)
 
 	switch (GST_EVENT_TYPE (event)) {
 	case GST_EVENT_SEEK:
-		res = do_seek(acm, event);
+		res = handle_seek(acm, event);
 		gst_event_unref(event);
 		break;
 	default:
@@ -558,72 +596,71 @@ static GstStateChangeReturn acmdec_change_state (GstElement *elem, GstStateChang
 	return ret;
 }
 
-static void acmdec_send_segment(AcmDec *acm)
+// -1 - err, 0 - dont decode, 1 - continue
+static int do_real_seek(AcmDec *acm, int size)
 {
-	GstEvent *ev;
-	guint64 timepos, start, stop;
+	int seek_to_pcm, got;
+	usec_t seek_time;
+	gint64 pcmpos;
 
-	timepos = acm_time_tell(acm->ctx);
-	start = GST_SECOND * timepos / 1000;
-	stop = GST_SECOND * acm_time_total(acm->ctx) / 1000;
+	GST_OBJECT_LOCK(acm);
+	seek_to_pcm = acm->seek_to_pcm;
+	seek_time = acm->last_seek_event_time;
+	GST_OBJECT_UNLOCK(acm);
 
-	ev = gst_event_new_new_segment(FALSE, 1.0,
-				       GST_FORMAT_TIME, start, stop, start);
-	gst_pad_push_event(acm->srcpad, ev);
+	if (seek_to_pcm < 0)
+		return 1;
+	if (seek_time + ACMDEC_SEEK_WAIT > get_real_time())
+		return 1;
+
+	pcmpos = acm_pcm_tell(acm->ctx);
+	if (pcmpos > seek_to_pcm + size) {
+		GST_LOG_OBJECT(acm, "doing stream rewind");
+		gst_adapter_clear(acm->adapter);
+		if (acm_seek_pcm(acm->ctx, 0) < 0) {
+			GST_LOG_OBJECT(acm, "acm_seek_pcm failed");
+			return -1;
+		}
+		return 0;
+	}
+
+	if (pcmpos < seek_to_pcm) {
+		got = acm_read_loop(acm->ctx, NULL, size, ACM_NATIVE_BE, 2, 1);
+		if (got > 0)
+			return 0;
+		else
+			return -1;
+	}
+	GST_DEBUG_OBJECT(acm, "reached seek pos at %d", (int)pcmpos);
+	GST_OBJECT_LOCK(acm);
+	acm->seek_to_pcm = -1;
+	acm->discont = TRUE;
+	GST_OBJECT_UNLOCK(acm);
+
+	gst_pad_push_event (acm->srcpad, gst_event_new_flush_start ());
+	//gst_pad_push_event (dec->sinkpad, gst_event_new_flush_stop ());
+	gst_pad_push_event (acm->srcpad, gst_event_new_flush_stop ());
+
+	acmdec_send_segment(acm, TRUE);
+
+	return 1;
 }
-
 
 static GstFlowReturn decode_block(AcmDec *acm, int size)
 {
 	GstBuffer *buf = NULL;
 	GstFlowReturn flow;
 	int got;
-	int seek_to = acm->seek_to;
-	gboolean restart;
-	gint64 pcmpos;
 
-	GST_OBJECT_LOCK(acm);
-	seek_to = acm->seek_to;
-	restart = acm->restart;
-	GST_OBJECT_UNLOCK(acm);
-
-	if (seek_to >= 0) {
-		if (restart) {
-			GST_LOG_OBJECT(acm, "doing stream rewind");
-			gst_adapter_clear(acm->adapter);
-			if (acm_seek_pcm(acm->ctx, 0) < 0) {
-				GST_LOG_OBJECT(acm, "acm_seek_pcm failed");
-				return GST_FLOW_UNEXPECTED;
-			}
-
-			GST_OBJECT_LOCK(acm);
-			acm->restart = FALSE;
-			acm->discont = TRUE;
-			GST_OBJECT_UNLOCK(acm);
-
-			return GST_FLOW_OK;
-		}
-		pcmpos = acm_pcm_tell(acm->ctx);
-		if (pcmpos < seek_to) {
-			got = acm_read_loop(acm->ctx, NULL, size, ACM_NATIVE_BE, 2, 1);
-			if (got > 0)
-				return GST_FLOW_OK;
-			else
-				return GST_FLOW_UNEXPECTED;
-		}
-		GST_DEBUG_OBJECT(acm, "reached seek pos at %d", (int)pcmpos);
-		GST_OBJECT_LOCK(acm);
-		acm->seek_to = -1;
-		GST_OBJECT_UNLOCK(acm);
-	}
+	got = do_real_seek(acm, size);
+	if (got <= 0)
+		return (got < 0) ? GST_FLOW_UNEXPECTED : GST_FLOW_OK;
 
 	flow = gst_pad_alloc_buffer_and_set_caps(acm->srcpad, -1, size, GST_PAD_CAPS(acm->srcpad), &buf);
 	if (flow != GST_FLOW_OK)
 		goto error;
 
 	if (acm->discont) {
-		acmdec_send_segment(acm);
-
 		buf = gst_buffer_make_metadata_writable(buf);
 		GST_BUFFER_FLAG_SET(buf, GST_BUFFER_FLAG_DISCONT);
 		acm->discont = FALSE;
@@ -716,6 +753,7 @@ static GstFlowReturn acmdec_sink_chain(GstPad *pad, GstBuffer *buf)
 			flow = GST_FLOW_UNEXPECTED;
 			goto out;
 		}
+		acmdec_send_segment(acm, FALSE);
 	}
 
 	out_block = acm->ctx->block_len * ACM_WORD;
