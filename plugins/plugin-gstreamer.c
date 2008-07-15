@@ -634,7 +634,8 @@ static GstFlowReturn decode_block(AcmDec *acm, int size)
 		flow = GST_FLOW_UNEXPECTED;
 		goto error;
 	} else if (got == 0) {
-		gst_pad_push_event(acm->srcpad, gst_event_new_eos());
+		GST_DEBUG_OBJECT(acm, "got eof, sending eos");
+		flow = GST_FLOW_UNEXPECTED;
 		goto error;
 	}
 
@@ -661,14 +662,17 @@ static gboolean acmdec_sink_event(GstPad *pad, GstEvent *event)
 		res = handle_sink_newsegment(acm, event);
 		break;
 	case GST_EVENT_EOS:
-		GST_DEBUG_OBJECT (acm, "Sink received %s event", GST_EVENT_TYPE_NAME (event));
+		GST_DEBUG_OBJECT (acm, "Sink received %s event, avail=%d", 
+				  GST_EVENT_TYPE_NAME (event),
+				  gst_adapter_available(acm->adapter));
 
-		while (gst_adapter_available(acm->adapter) > 0) {
+		flow = GST_FLOW_OK;
+		while (flow == GST_FLOW_OK) {
 			int out_block = acm->ctx->block_len * ACM_WORD;
+			GST_DEBUG_OBJECT (acm, "flushing, avail=%d", gst_adapter_available(acm->adapter));
 			flow = decode_block(acm, out_block);
-			if (flow != GST_FLOW_OK)
-				break;
 		}
+		gst_pad_push_event(acm->srcpad, gst_event_new_eos());
 		res = TRUE;
 		break;
 	case GST_EVENT_FLUSH_STOP:
