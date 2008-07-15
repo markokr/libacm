@@ -259,7 +259,8 @@ int acm_read_loop(ACMStream *acm, void *dst, int bytes,
 	while (bytes > 0) {
 		res = acm_read(acm, dstp, bytes, bigendianp, wordlen, sgned);
 		if (res > 0) {
-			dstp += res;
+			if (dstp)
+				dstp += res;
 			got += res;
 			bytes -= res;
 		} else {
