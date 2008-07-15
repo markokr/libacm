@@ -625,6 +625,8 @@ static int do_real_seek(AcmDec *acm, int size)
 	}
 
 	if (pcmpos < seek_to_pcm) {
+		//if (seek_to_pcm - pcmpos < size)
+		//	size = seek_to_pcm - pcmpos;
 		got = acm_read_loop(acm->ctx, NULL, size, ACM_NATIVE_BE, 2, 1);
 		if (got > 0)
 			return 0;
@@ -830,9 +832,9 @@ static void acmdec_base_init(gpointer klass)
 static void acmdec_detect_file(GstTypeFind *find, gpointer junk)
 {
 	guint8 *buf;
-	static const guint8 acm_id[] = { 0x97, 0x28, 0x03, 0x01 };
+	static const guint8 acm_id[] = { 0x97, 0x28, 0x03 };
 
-	buf = gst_type_find_peek(find, 0, 4);
+	buf = gst_type_find_peek(find, 0, 3);
 	if (!buf || memcmp(buf, acm_id, 3))
 		return;
 
