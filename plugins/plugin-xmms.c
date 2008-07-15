@@ -31,18 +31,8 @@
 #include <glib.h>
 #include <gtk/gtk.h>
 
-#ifdef AUDACIOUS
-#include <audacious/plugin.h>
-#include <audacious/util.h>
-#endif
-#ifdef BEEP
-#include <bmp/plugin.h>
-#include <bmp/util.h>
-#endif
-#ifdef XMMS
 #include <plugin.h>
 #include <util.h>
-#endif
 
 #include "libacm.h"
 
@@ -56,11 +46,7 @@ static ACMInput *input = NULL;
 static InputPlugin *plugin;
 
 static gboolean audio_error = FALSE;
-#ifndef XMMS
-static GThread *decode_thread;
-#else
 static pthread_t decode_thread;
-#endif
 
 /*
  * useful stuff
@@ -186,11 +172,7 @@ static void try_seeking()
 	input->seek_to = -1;
 }
 
-#ifndef XMMS
-static gpointer play_thread(gpointer arg)
-#else
 static void * play_thread(void * arg)
-#endif
 {
 	const ACMInfo *info = acm_info(input->acm);
 	gchar *buf = g_malloc0(BLK_SAMPLES * ACM_WORD * info->channels);
@@ -206,11 +188,7 @@ static void * play_thread(void * arg)
 
 	}
 	g_free(buf);
-#ifndef XMMS
-	g_thread_exit(NULL);
-#else
 	pthread_exit(NULL);
-#endif
 	return NULL;
 }
 
@@ -259,22 +237,14 @@ static void play_file(gchar * filename)
                         info->rate,
 			info->channels);
 	g_free(name);
-#ifndef XMMS
-	decode_thread = g_thread_create(play_thread, NULL, TRUE, NULL);
-#else
 	pthread_create(&decode_thread, NULL, play_thread, NULL);
-#endif
 }
 
 static void stop(void)
 {
     	if (input && input->going) {
 	    	input->going = 0;
-#ifndef XMMS
-		g_thread_join(decode_thread);
-#else
 	     	pthread_join(decode_thread, NULL);
-#endif
 	      	plugin->output->close_audio();
 		if (input->acm)
 			acm_close(input->acm);
@@ -317,13 +287,8 @@ static void file_info_box(char *filename)
 	acm_close(acm);	
 	
 	dlg = xmms_show_message("File Info", buf, "Ok", FALSE, NULL, NULL);
-#ifndef XMMS
-	g_signal_connect(G_OBJECT(dlg), "destroy",
-			G_CALLBACK(gtk_widget_destroyed), NULL);
-#else
 	gtk_signal_connect(GTK_OBJECT(dlg), "destroy",
 			GTK_SIGNAL_FUNC(gtk_widget_destroyed), NULL);
-#endif
 }
 
 static void about()
@@ -339,13 +304,8 @@ static void about()
 			"Homepage: http://libacm.berlios.de/\n"
 			"\n",
 		"Ok", FALSE, NULL, NULL);
-#ifndef XMMS
-	g_signal_connect(G_OBJECT(about_window), "destroy",
-			G_CALLBACK(gtk_widget_destroyed), NULL);
-#else
 	gtk_signal_connect(GTK_OBJECT(about_window), "destroy",
 			GTK_SIGNAL_FUNC(gtk_widget_destroyed), NULL);
-#endif
 }
 
 

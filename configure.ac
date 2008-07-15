@@ -75,28 +75,6 @@ dnl  AM_PATH_XMMS(1.0.0, :, AC_MSG_ERROR([*** XMMS not found ***])
   AC_SUBST([XMMS_DEST])
 fi
 
-dnl Check for beep
-beep_plugin=no
-AC_ARG_ENABLE([beep],
-  [  --enable-beep           Compile plugin for BEEP],
-  [beep_plugin=$enableval])
-if test $beep_plugin = yes; then
-  PKG_CHECK_MODULES([BEEP], [bmp], ,
-  	[AC_MSG_ERROR([*** Beep Media Player not found ***])])
-
-  AC_MSG_CHECKING([for location of BEEP input plugins])
-  AC_ARG_WITH([beep-plugindir], 
-    [  --with-beep-plugindir=DIR         Destination for BMP plugin (autodetect)],
-    [BEEP_DEST="$withval"])
-  test -z "$BEEP_DEST" && \
-  BEEP_DEST=`$PKG_CONFIG --variable=input_plugin_dir bmp`
-  AC_MSG_RESULT([$BEEP_DEST])
-
-  AC_SUBST([BEEP_CFLAGS])
-  AC_SUBST([BEEP_LIBS])
-  AC_SUBST([BEEP_DEST])
-fi
-
 dnl Check for audacious
 audacious_plugin=no
 AC_ARG_ENABLE([audacious],
@@ -142,7 +120,6 @@ if test $gst10_plugin = yes; then
 fi
 
 AM_CONDITIONAL(MAKE_XMMS_PLUGIN, test "$xmms_plugin" = "yes")
-AM_CONDITIONAL(MAKE_BEEP_PLUGIN, test "$beep_plugin" = "yes")
 AM_CONDITIONAL(MAKE_AUDACIOUS_PLUGIN, test "$audacious_plugin" = "yes")
 AM_CONDITIONAL(MAKE_GST10_PLUGIN, test "$gst10_plugin" = "yes")
 
@@ -153,7 +130,6 @@ AC_OUTPUT
 echo ""
 echo "Plugins:"
 echo "  XMMS:               $xmms_plugin"
-echo "  Beep Media Player:  $beep_plugin"
 echo "  Audacious:          $audacious_plugin"
 echo "  Gstreamer 0.10:     $gst10_plugin"
 echo ""
