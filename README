@@ -6,8 +6,8 @@ Intro
 
 Decoder library for InterPlay ACM audio files.
 
-Includes command line tool and plugins for Winamp, GStreamer and
-XMMS family (XMMS, BMP, Audacious).
+Includes command line tool and plugins for Winamp, Audacious, XMMS
+and GStreamer 0.10.
 
 The format was used for games Fallout, Fallout 2 and Baldur's Gate series.
 It is less efficient than the more advanced MP3, Vorbis or AAC algorithms,
@@ -18,15 +18,21 @@ NEWS
 ----
 
 Version 1.0 (in-progress)
-~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* decoder: be more tolerant for unexpected EOF
-* plugin-audacious.c: New plugin for Audacious 1.3+
+* decoder: excpect EOF in more places - otherwise libacm
+  complained about "unexpected eof".
+* decoder: on reading assume there is additional single zero byte
+  at the end of all files.  Otherwise last block on some files was
+  skipped because last few bits could not be read.
 
+Thanks to above 2 changes libacm now decodes all Fallout 1/2
+files in full length and without complaining.
 
-Todo:
-* Plugin for gstreamer 0.10
 * License plugins under LGPL.
+* New separate plugin for Audacious 1.3+
+* Remove plugin for Beep Media Player
+* Rewrite plugin-gstreamer.c for GStreamer "Hell On Earth" 0.10
 
 Version 0.9.2
 ~~~~~~~~~~~~~
@@ -60,9 +66,8 @@ Installation
 By default no plugins are compiled.  You must explicitly enable them:
 
   --enable-xmms			Enable plugin for XMMS
-  --enable-beep			Enable plugin for Beep Media Player
   --enable-audacious		Enable plugin for Audacious
-  --enable-gstreamer		Enable plugin for Gstreamer 0.8
+  --enable-gstreamer		Enable plugin for Gstreamer 0.10
 
 By default the plugins are installed into player's main plugin directory.
 To specify some other location, use following arguments:
@@ -83,9 +88,9 @@ Status
 
 * Decoder: stable
 * WinAmp plugin: stable
-* XMMS/BMP/Audacity plugin: stable
-* GStreamer 0.8 plugin: beta
-* GStreamer 0.9 plugin: not started
+* XMMS plugin: stable
+* Audacity plugin: stable
+* GStreamer 0.10 plugin: beta
 * Encoder: when I have more time
 
 
