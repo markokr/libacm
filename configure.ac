@@ -81,14 +81,15 @@ AC_ARG_ENABLE([audacious],
   [  --enable-audacious      Compile plugin for Audacious],
   [audacious_plugin=$enableval])
 if test $audacious_plugin = yes; then
-  PKG_CHECK_MODULES([AUDACIOUS], [audacious >= 1.2.0], ,
+  PKG_CHECK_MODULES([AUDACIOUS], [audacious], ,
   	[AC_MSG_ERROR([*** Audacious not found ***])])
 
-  AC_MSG_CHECKING([if Audacious >= 1.3])
-  PKG_CHECK_EXISTS([audacious >= 1.3.0], [aud_130=yes], [aud_130=no])
-  AC_MSG_RESULT([$aud_130])
-  if test "$aud_130" = "yes"; then
-    AC_DEFINE(HAVE_AUDACIOUS_1_3, 1, [Define to 1 if Audacious >= 1.3])
+  AC_MSG_CHECKING([if Audacious >= 1.5])
+  PKG_CHECK_EXISTS([audacious >= 1.5.0], [aud_150=yes], [aud_150=no])
+  AC_MSG_RESULT([$aud_150])
+  if test "$aud_150" = "no"; then
+    AC_MSG_WARN([Audacious plugin has been tested only with Audacious version 1.5])
+    AC_MSG_WARN([On older versions you are on your own.  Feel free to send patches.])
   fi
 
   AC_MSG_CHECKING([for location of Audacious input plugins])

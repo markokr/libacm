@@ -251,9 +251,7 @@ static void acmx_about(void)
  * Plugin info.
  */
 
-#ifdef HAVE_AUDACIOUS_1_3
 static gchar *acmx_fmts[] = { "acm", NULL };
-#endif
 
 static InputPlugin acmx_plugin = {
 	.description = "InterPlay ACM Audio Plugin",
@@ -266,9 +264,7 @@ static InputPlugin acmx_plugin = {
 	.seek = acmx_seek,
 
 	.get_song_tuple = acmx_get_song_tuple,	/* aud 1.1.0 */
-#ifdef HAVE_AUDACIOUS_1_3
 	.vfs_extensions = acmx_fmts,		/* aud 1.3.0 */
-#endif
 };
 
 static InputPlugin *acmx_plugin_list[] = { &acmx_plugin, NULL };

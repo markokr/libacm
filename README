@@ -30,7 +30,7 @@ Thanks to above 2 changes libacm now decodes all Fallout 1/2
 files in full length and without complaining.
 
 * License plugins under LGPL.
-* New separate plugin for Audacious 1.3+
+* New separate plugin for Audacious 1.5+
 * Remove plugin for Beep Media Player
 * Rewrite plugin-gstreamer.c for GStreamer "Hell On Earth" 0.10
 
