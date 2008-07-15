@@ -80,7 +80,11 @@ static Tuple *acmx_get_song_tuple(gchar * filename)
 	int err;
 	Tuple *tup = NULL;
 	char buf[512];
-	gchar *title;
+	gchar *title, *ext;
+
+	ext = strrchr(filename, '.');
+	if (!ext || strcasecmp(ext, ".acm") != 0)
+		return NULL;
 
 	if ((err = acmx_open_vfs(&acm, filename)) < 0)
 		return NULL;
@@ -247,7 +251,9 @@ static void acmx_about(void)
  * Plugin info.
  */
 
+#ifdef HAVE_AUDACIOUS_1_3
 static gchar *acmx_fmts[] = { "acm", NULL };
+#endif
 
 static InputPlugin acmx_plugin = {
 	.description = "InterPlay ACM Audio Plugin",
@@ -260,7 +266,9 @@ static InputPlugin acmx_plugin = {
 	.seek = acmx_seek,
 
 	.get_song_tuple = acmx_get_song_tuple,	/* aud 1.1.0 */
+#ifdef HAVE_AUDACIOUS_1_3
 	.vfs_extensions = acmx_fmts,		/* aud 1.3.0 */
+#endif
 };
 
 static InputPlugin *acmx_plugin_list[] = { &acmx_plugin, NULL };
