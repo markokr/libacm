@@ -107,16 +107,16 @@ fi
 
 dnl Check for gstreamer
 gst10_plugin=no
-AC_ARG_ENABLE([gstreamer10],
-  [  --enable-gstreamer10     Compile plugin for GStreamer 0.10],
+AC_ARG_ENABLE([gstreamer],
+  [  --enable-gstreamer       Compile plugin for GStreamer 0.10],
   [gst10_plugin=$enableval])
 if test $gst10_plugin = yes; then
   PKG_CHECK_MODULES([GST10], [gstreamer-0.10], ,
      [AC_MSG_ERROR([*** GStreamer0.10 not found ***])])
 
   AC_MSG_CHECKING([for location of GStreamer plugins])
-  AC_ARG_WITH([gstreamer10-plugindir], 
-    [  --with-gstreamer10-plugindir=DIR  Destination for Gstreamer plugin (autodetect)],
+  AC_ARG_WITH([gstreamer-plugindir], 
+    [  --with-gstreamer-plugindir=DIR  Destination for Gstreamer plugin (autodetect)],
     [GST10_DEST="$withval"])
   test -z "$GST10_DEST" && \
   GST10_DEST=`$PKG_CONFIG --variable=libdir gstreamer-0.10`/gstreamer-0.10
