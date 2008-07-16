@@ -29,7 +29,7 @@
 
 #include "libacm.h"
 
-static const char * version = "acmtool - libacm " LIBACM_VERSION;
+static const char * version = "acmtool - libacm version " LIBACM_VERSION;
 
 static int cf_raw = 0;
 static int cf_force_chans = 0;
@@ -68,13 +68,12 @@ static char * makefn(const char *fn, const char *ext)
 static int write_wav_header(FILE *f, ACMStream *acm, int cf_force_chans)
 {
 	unsigned char hdr[50], *p = hdr;
-	const ACMInfo *info = acm_info(acm);
 	int res;
-	int datalen = acm_pcm_total(acm) * ACM_WORD * info->channels;
+	int datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
 	
 	int code = 1;
-	int n_channels = cf_force_chans ? cf_force_chans : info->channels;
-	int srate = info->rate;
+	int n_channels = cf_force_chans ? cf_force_chans : acm_channels(acm);
+	int srate = acm_rate(acm);
 	int avg_bps = srate * n_channels * ACM_WORD;
 	int significant_bits = ACM_WORD * 8;
 	int block_align = significant_bits * n_channels / 8;
@@ -133,9 +132,11 @@ static void decode_file(const char *fn, const char *fn2)
 	show_header(fn, acm);
 
 	if (!cf_no_output) {
-		fo = fopen(fn2, "wb");
+		if (!strcmp(fn2, "-"))
+			fo = stdout;
+		else
+			fo = fopen(fn2, "wb");
 		if (fo == NULL) {
-			printf("pos3: ");
 			perror(fn2);
 			acm_close(acm);
 			return;
@@ -144,7 +145,6 @@ static void decode_file(const char *fn, const char *fn2)
 
 	if ((!cf_raw) && (!cf_no_output)) {
 		if ((err = write_wav_header(fo, acm, cf_force_chans)) < 0) {
-			printf("pos4: ");
 			perror(fn2);
 			fclose(fo);
 			acm_close(acm);
@@ -177,8 +177,8 @@ static void decode_file(const char *fn, const char *fn2)
 	}
 
 	memset(buf, 0, buflen);
-	if (0 && bytes_done < total_bytes) 
-		printf("filler_samples: %d\n",
+	if (bytes_done < total_bytes && !cf_quiet) 
+		fprintf(stderr, "adding filler_samples: %d\n",
 				total_bytes - bytes_done);
 	while (bytes_done < total_bytes) {
 		int bs;
@@ -266,8 +266,8 @@ static void usage(int err)
 	printf("Other:  acmtool -i ACMFILE [ACMFILE ...]\n");
 	printf("        acmtool -M|-S ACMFILE [ACMFILE ...]\n");
 	printf("Commands:\n");
-	printf("  -d     decode\n");
-	printf("  -i     show info about files\n");
+	printf("  -d     decode audio into WAV files\n");
+	printf("  -i     show info about ACM files\n");
 	printf("  -M     modify ACM header to have 1 channel\n");
 	printf("  -S     modify ACM header to have 2 channels\n");
 	printf("Switches:\n");
@@ -276,7 +276,7 @@ static void usage(int err)
 	printf("  -r     raw output - no wav header\n");
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
-	printf("  -o FN  output to file\n");
+	printf("  -o FN  output to file, can be used if single source file\n");
 	exit(err);
 }
 
