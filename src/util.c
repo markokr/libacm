@@ -246,7 +246,7 @@ int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 /*
  * read loop - full block reading
  */
-int acm_read_loop(ACMStream *acm, void *dst, int bytes,
+int acm_read_loop(ACMStream *acm, void *dst, unsigned bytes,
 		int bigendianp, int wordlen, int sgned)
 {
 	unsigned char *dstp = dst;

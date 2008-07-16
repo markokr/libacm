@@ -65,20 +65,20 @@ static char * makefn(const char *fn, const char *ext)
 		p += len; \
 	} while (0)
 
-static int write_wav_header(FILE *f, ACMStream *acm, int cf_force_chans)
+static int write_wav_header(FILE *f, ACMStream *acm, unsigned cf_force_chans)
 {
 	unsigned char hdr[50], *p = hdr;
 	int res;
-	int datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
+	unsigned datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
 	
 	int code = 1;
-	int n_channels = cf_force_chans ? cf_force_chans : acm_channels(acm);
-	int srate = acm_rate(acm);
-	int avg_bps = srate * n_channels * ACM_WORD;
-	int significant_bits = ACM_WORD * 8;
-	int block_align = significant_bits * n_channels / 8;
-	int hdrlen = 16;
-	int wavlen = 4 + 8 + hdrlen + 8 + datalen;
+	unsigned n_channels = cf_force_chans ? cf_force_chans : acm_channels(acm);
+	unsigned srate = acm_rate(acm);
+	unsigned avg_bps = srate * n_channels * ACM_WORD;
+	unsigned significant_bits = ACM_WORD * 8;
+	unsigned block_align = significant_bits * n_channels / 8;
+	unsigned hdrlen = 16;
+	unsigned wavlen = 4 + 8 + hdrlen + 8 + datalen;
 	
 	memset(hdr, 0, sizeof(hdr));
 	
