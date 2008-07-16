@@ -117,17 +117,15 @@ int acm_open_file(ACMStream **res, const char *filename)
  * utility functions
  */
 
-static int pcm2time(ACMStream *acm, int pcm)
+static unsigned pcm2time(ACMStream *acm, unsigned long long pcm)
 {
-	long long lpcm = pcm, res = lpcm * 1000 / acm->info.rate;
-	return res;
+	return pcm * 1000 / acm->info.rate;
 	/* return ((10 * pcm) / acm->info.rate) * 100; */
 }
 
-static int time2pcm(ACMStream *acm, int time_ms)
+static unsigned time2pcm(ACMStream *acm, unsigned long long time_ms)
 {
-	long long ltime = time_ms, res = ltime * acm->info.rate / 1000;
-	return res;
+	return time_ms * acm->info.rate / 1000;
 	/* return (time_ms / 100) * (acm->info.rate / 10); */
 }
 
@@ -140,12 +138,12 @@ const ACMInfo *acm_info(ACMStream *acm)
 	return &acm->info;
 }
 
-int acm_rate(ACMStream *acm)
+unsigned acm_rate(ACMStream *acm)
 {
 	return acm->info.rate;
 }
 
-int acm_channels(ACMStream *acm)
+unsigned acm_channels(ACMStream *acm)
 {
 	return acm->info.channels;
 }
@@ -155,45 +153,44 @@ int acm_seekable(ACMStream *acm)
 	return acm->data_len > 0;
 }
 
-int acm_bitrate(ACMStream *acm)
+unsigned acm_bitrate(ACMStream *acm)
 {
-	long secs, bitrate;
-	const ACMInfo *info = acm_info(acm);
+	unsigned long secs, bitrate;
 
-	if (acm_raw_total(acm) < 0)
+	if (acm_raw_total(acm) == 0)
 		return 13000;
 
-	secs = acm_pcm_total(acm) / info->rate;
+	secs = acm_pcm_total(acm) / acm_rate(acm);
 	bitrate = acm_raw_total(acm) / secs * 8;
 	return bitrate;
 }
 
-int acm_pcm_tell(ACMStream *acm)
+unsigned acm_pcm_tell(ACMStream *acm)
 {
 	return acm->stream_pos / acm->info.channels;
 }
 
-int acm_pcm_total(ACMStream *acm)
+unsigned acm_pcm_total(ACMStream *acm)
 {
 	return acm->total_values / acm->info.channels;
 }
 
-int acm_time_tell(ACMStream *acm)
+unsigned acm_time_tell(ACMStream *acm)
 {
 	return pcm2time(acm, acm_pcm_tell(acm));
 }
 
-int acm_time_total(ACMStream *acm)
+unsigned acm_time_total(ACMStream *acm)
 {
 	return pcm2time(acm, acm_pcm_total(acm));
 }
 
-int acm_raw_tell(ACMStream *acm)
+unsigned acm_raw_tell(ACMStream *acm)
 {
 	return acm->buf_start_ofs + acm->buf_pos;
 }
 
-int acm_raw_total(ACMStream *acm)
+unsigned acm_raw_total(ACMStream *acm)
 {
 	return acm->data_len;
 }
@@ -202,7 +199,7 @@ int acm_raw_total(ACMStream *acm)
  * seeking
  */
 
-int acm_seek_time(ACMStream *acm, int time_ms)
+int acm_seek_time(ACMStream *acm, unsigned time_ms)
 {
 	int res = acm_seek_pcm(acm, time2pcm(acm, time_ms));
 	if (res <= 0)
@@ -210,11 +207,9 @@ int acm_seek_time(ACMStream *acm, int time_ms)
 	return pcm2time(acm, res);
 }
 
-int acm_seek_pcm(ACMStream *acm, int pcm_pos)
+int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 {
-	int res, word_pos;
-
-	word_pos = pcm_pos * acm->info.channels;
+	unsigned word_pos = pcm_pos * acm->info.channels;
 
 	if (word_pos < acm->stream_pos) {
 		if (acm->io.seek_func == NULL)
@@ -237,7 +232,7 @@ int acm_seek_pcm(ACMStream *acm, int pcm_pos)
 		memset(acm->wrapbuf, 0, acm->wrapbuf_len * sizeof(int));
 	}
 	while (acm->stream_pos < word_pos) {
-		int step = 2048;
+		int step = 2048, res;
 		if (acm->stream_pos + step > word_pos)
 			step = word_pos - acm->stream_pos;
 

@@ -134,34 +134,32 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 	return data;
 }
 
-#define GET_BITS_NOERR(res, acm, bits) do { \
+#define GET_BITS_NOERR(tmpval, acm, bits) do { \
 		if (acm->bit_avail >= bits) { \
-			res = acm->bit_data & ((1 << bits) - 1); \
+			tmpval = acm->bit_data & ((1 << bits) - 1); \
 			acm->bit_data >>= bits; \
 			acm->bit_avail -= bits; \
 		} else \
-			res = get_bits_reload(acm, bits); \
+			tmpval = get_bits_reload(acm, bits); \
 	} while (0)
 
 #define GET_BITS(res, acm, bits) do { \
-		GET_BITS_NOERR(res, acm, bits); \
-		if (res < 0) \
-			return res; \
-	} while (0)
-
-#define GET_BITS_ERR_OUT(res, acm, bits) do { \
-		GET_BITS_NOERR(res, acm, bits); \
-		if (res < 0) \
-			goto err_out; \
+		int tmpval; \
+		GET_BITS_NOERR(tmpval, acm, bits); \
+		if (tmpval < 0) \
+			return tmpval; \
+		res = tmpval; \
 	} while (0)
 
 #define GET_BITS_EXPECT_EOF(res, acm, bits) do { \
-		GET_BITS_NOERR(res, acm, bits); \
-		if (res < 0) { \
-			if (res == ACM_ERR_UNEXPECTED_EOF) \
-				res = ACM_EXPECTED_EOF; \
-			return res; \
+		int tmpval; \
+		GET_BITS_NOERR(tmpval, acm, bits); \
+		if (tmpval < 0) { \
+			if (tmpval == ACM_ERR_UNEXPECTED_EOF) \
+				return ACM_EXPECTED_EOF; \
+			return tmpval; \
 		} \
+		res = tmpval; \
 	} while (0)
 
 /*************************************************
@@ -200,7 +198,7 @@ static void generate_tables(void)
 
 /* IOW: (r * acm->subblock_len) + c */
 #define set_pos(acm, r, c, idx) do { \
-		int _pos = ((r) << acm->info.acm_level) + (c); \
+		unsigned _pos = ((r) << acm->info.acm_level) + (c); \
 		acm->block[_pos] = acm->midbuf[idx]; \
 	} while (0)
 
@@ -208,7 +206,7 @@ static void generate_tables(void)
 
 static int f_zero(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i;
+	unsigned i;
 	for (i = 0; i < acm->info.acm_rows; i++)
 		set_pos(acm, i, col, 0);
 	
@@ -223,8 +221,8 @@ static int f_bad(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_linear(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
-	int middle = 1 << (ind - 1);
+	unsigned int i;
+	int b, middle = 1 << (ind - 1);
 
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, ind);
@@ -235,7 +233,7 @@ static int f_linear(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k13(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -261,7 +259,7 @@ static int f_k13(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k12(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -279,7 +277,7 @@ static int f_k12(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k24(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -306,7 +304,7 @@ static int f_k24(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k23(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -324,7 +322,7 @@ static int f_k23(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k35(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -360,7 +358,7 @@ static int f_k35(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k34(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -386,7 +384,7 @@ static int f_k34(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k45(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -414,7 +412,7 @@ static int f_k45(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_k44(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b;
+	unsigned i, b;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
@@ -432,7 +430,8 @@ static int f_k44(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b, n1, n2, n3;
+	unsigned i, b;
+	int n1, n2, n3;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 3) + (x3 * 9) */
 		GET_BITS(b, acm, 5);
@@ -454,7 +453,8 @@ static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_t27(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b, n1, n2, n3;
+	unsigned i, b;
+	int n1, n2, n3;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 5) + (x3 * 25) */
 		GET_BITS(b, acm, 7);
@@ -476,7 +476,8 @@ static int f_t27(ACMStream *acm, unsigned ind, unsigned col)
 
 static int f_t37(ACMStream *acm, unsigned ind, unsigned col)
 {
-	int i, b, n1, n2;
+	unsigned i, b;
+	int n1, n2;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 11) */
 		GET_BITS(b, acm, 7);
@@ -507,7 +508,8 @@ static const filler_t filler_list[] = {
 
 static int fill_block(ACMStream *acm)
 {
-	int i, err, ind;
+	unsigned i, ind;
+	int err;
 	for (i = 0; i < acm->info.acm_cols; i++) {
 		GET_BITS_EXPECT_EOF(ind, acm, 5);
 		err = filler_list[ind](acm, ind, i);
@@ -521,9 +523,10 @@ static int fill_block(ACMStream *acm)
  * Decompress code
  **********************************************/
 
-static void juggle(int *wrap_p, int *block_p, int sub_len, int sub_count)
+static void juggle(int *wrap_p, int *block_p, unsigned sub_len, unsigned sub_count)
 {
-	int i, j, *p, r0, r1, r2, r3;
+	unsigned int i, j;
+	int *p, r0, r1, r2, r3;
 	for (i = 0; i < sub_len; i++) {
 		p = block_p;
 		r0 = wrap_p[0];
@@ -541,18 +544,18 @@ static void juggle(int *wrap_p, int *block_p, int sub_len, int sub_count)
 
 static void juggle_block(ACMStream *acm)
 {
-	int sub_count, sub_len, todo_count, i;
+	unsigned sub_count, sub_len, todo_count, step_subcount, i;
 	int *wrap_p, *block_p, *p;
-	int step_subcount;
 	
 	/* juggle only if subblock_len > 1 */
 	if (acm->info.acm_level == 0)
 		return;
 
 	/* 2048 / subblock_len */
-	step_subcount = (2048 >> acm->info.acm_level) - 2;
-	if (step_subcount < 1)
+	if (acm->info.acm_level > 9)
 		step_subcount = 1;
+	else
+		step_subcount = (2048 >> acm->info.acm_level) - 2;
 
 	/* Apply juggle()  (rows)x(cols)
 	 * from (step_subcount * 2)            x (subblock_len/2)
@@ -560,7 +563,7 @@ static void juggle_block(ACMStream *acm)
 	 */
 	todo_count = acm->info.acm_rows;
 	block_p = acm->block;
-	while (todo_count > 0) {
+	while (1) {
 		wrap_p = acm->wrapbuf;
 		sub_count = step_subcount;
 		if (sub_count > todo_count)
@@ -583,6 +586,8 @@ static void juggle_block(ACMStream *acm)
 			juggle(wrap_p, block_p, sub_len, sub_count);
 			wrap_p += sub_len*2;
 		}
+		if (todo_count <= step_subcount)
+			break;
 		todo_count -= step_subcount;
 		block_p += step_subcount << acm->info.acm_level;
 	}
@@ -688,13 +693,42 @@ static int output_values(int *src, unsigned char *dst, int n,
 	return ACM_ERR_BADFMT;
 }
 
+/*
+ * Header parsing.
+ */
+
+static int read_header(ACMStream *acm)
+{
+	int tmp;
+	/* read header */
+	GET_BITS(acm->info.acm_id, acm, 24);
+	if (acm->info.acm_id != ACM_ID)
+		return ACM_ERR_NOT_ACM;
+	GET_BITS(acm->info.acm_version, acm, 8);
+	if (acm->info.acm_version != 1)
+		return ACM_ERR_NOT_ACM;
+	GET_BITS(acm->total_values, acm, 16);
+	GET_BITS(tmp, acm, 16);
+	acm->total_values += tmp << 16;
+	if (acm->total_values == 0)
+		return ACM_ERR_NOT_ACM;
+	GET_BITS(acm->info.channels, acm, 16);
+	if (acm->info.channels <  1)
+		return ACM_ERR_NOT_ACM;
+	GET_BITS(acm->info.rate, acm, 16);
+	
+	GET_BITS(acm->info.acm_level, acm, 4);
+	GET_BITS(acm->info.acm_rows, acm, 12);
+	return 0;
+}
+
 /***********************************************
  * Public functions
  ***********************************************/
 
 int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
 {
-	int err = ACM_ERR_OTHER, tmp;
+	int err = ACM_ERR_OTHER;
 	ACMStream *acm;
 	
 	acm = malloc(sizeof(*acm));
@@ -708,7 +742,7 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
 	if (acm->io.get_length_func) {
 		acm->data_len = acm->io.get_length_func(acm->io_arg);
 	} else {
-		acm->data_len = -1;
+		acm->data_len = 0;
 	}
 	
 	acm->buf_max = ACM_BUFLEN;
@@ -716,29 +750,13 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
 	if (!acm->buf) 
 		goto err_out;
 
-	/* read header */
+	/* read header data */
 	err = ACM_ERR_NOT_ACM;
-	GET_BITS_ERR_OUT(acm->info.acm_id, acm, 24);
-	if (acm->info.acm_id != ACM_ID)
+	if (read_header(acm) < 0)
 		goto err_out;
-	GET_BITS_ERR_OUT(acm->info.acm_version, acm, 8);
-	if (acm->info.acm_version != 1)
-		goto err_out;
-	GET_BITS_ERR_OUT(acm->total_values, acm, 16);
-	GET_BITS_ERR_OUT(tmp, acm, 16);
-	acm->total_values += tmp << 16;
-	if (acm->total_values == 0)
-		goto err_out;
-	GET_BITS_ERR_OUT(acm->info.channels, acm, 16);
-	if (acm->info.channels <  1)
-		goto err_out;
-	GET_BITS_ERR_OUT(acm->info.rate, acm, 16);
-	
-	GET_BITS_ERR_OUT(acm->info.acm_level, acm, 4);
-	GET_BITS_ERR_OUT(acm->info.acm_rows, acm, 12);
-	acm->info.acm_cols = 1 << acm->info.acm_level;
 
 	/* calculate blocks */
+	acm->info.acm_cols = 1 << acm->info.acm_level;
 	acm->wrapbuf_len = 2 * acm->info.acm_cols - 2;
 	acm->block_len = acm->info.acm_rows * acm->info.acm_cols;
 
@@ -764,7 +782,7 @@ err_out:
 	return err;
 }
 
-int acm_read(ACMStream *acm, void *dst, int numbytes,
+int acm_read(ACMStream *acm, void *dst, unsigned numbytes,
 		 int bigendianp, int wordlen, int sgned)
 {
 	int avail, gotbytes = 0, err;

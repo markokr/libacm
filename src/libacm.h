@@ -35,13 +35,13 @@
 #define ACM_ERR_NOT_SEEKABLE	-8
 
 typedef struct ACMInfo {
-	int channels;
-	int rate;
-	int acm_id;
-	int acm_version;
-	int acm_level;
-	int acm_cols;		/* 1 << acm_level */
-	int acm_rows;
+	unsigned channels;
+	unsigned rate;
+	unsigned acm_id;
+	unsigned acm_version;
+	unsigned acm_level;
+	unsigned acm_cols;		/* 1 << acm_level */
+	unsigned acm_rows;
 } ACMInfo;
 
 typedef struct {
@@ -57,12 +57,12 @@ typedef struct {
 
 struct ACMStream {
 	ACMInfo info;
-	int total_values;
+	unsigned total_values;
 
 	/* acm data stream */
 	void *io_arg;
 	acm_io_callbacks io;
-	int data_len;
+	unsigned data_len;
 
 	/* acm stream buffer */
 	unsigned char *buf;
@@ -71,24 +71,24 @@ struct ACMStream {
 	unsigned buf_start_ofs;
 
 	/* block lengths (in samples) */
-	int block_len;
-	int wrapbuf_len;
+	unsigned block_len;
+	unsigned wrapbuf_len;
 	/* buffers */
 	int *block;
 	int *wrapbuf;
 	int *ampbuf;
 	int *midbuf;			/* pointer into ampbuf */
 	/* result */
-	int block_ready;
-	int file_eof;
-	int stream_pos;			/* in words. absolute */
-	int block_pos;			/* in words, relative */
+	unsigned block_ready:1;
+	unsigned file_eof:1;
+	unsigned stream_pos;			/* in words. absolute */
+	unsigned block_pos;			/* in words, relative */
 };
 typedef struct ACMStream ACMStream;
 
 /* decode.c */
 int acm_open_decoder(ACMStream **res, void *io_arg, acm_io_callbacks io);
-int acm_read(ACMStream *acm, void *buf, int nbytes,
+int acm_read(ACMStream *acm, void *buf, unsigned nbytes,
 		int bigendianp, int wordlen, int sgned);
 void acm_close(ACMStream *acm);
 
@@ -96,19 +96,19 @@ void acm_close(ACMStream *acm);
 int acm_open_file(ACMStream **acm, const char *filename);
 const ACMInfo *acm_info(ACMStream *acm);
 int acm_seekable(ACMStream *acm);
-int acm_bitrate(ACMStream *acm);
-int acm_rate(ACMStream *acm);
-int acm_channels(ACMStream *acm);
-int acm_raw_total(ACMStream *acm);
-int acm_raw_tell(ACMStream *acm);
-int acm_pcm_total(ACMStream *acm);
-int acm_pcm_tell(ACMStream *acm);
-int acm_time_total(ACMStream *acm);
-int acm_time_tell(ACMStream *acm);
-int acm_read_loop(ACMStream *acm, void *dst, int len,
+unsigned acm_bitrate(ACMStream *acm);
+unsigned acm_rate(ACMStream *acm);
+unsigned acm_channels(ACMStream *acm);
+unsigned acm_raw_total(ACMStream *acm);
+unsigned acm_raw_tell(ACMStream *acm);
+unsigned acm_pcm_total(ACMStream *acm);
+unsigned acm_pcm_tell(ACMStream *acm);
+unsigned acm_time_total(ACMStream *acm);
+unsigned acm_time_tell(ACMStream *acm);
+int acm_read_loop(ACMStream *acm, void *dst, unsigned len,
 		int bigendianp, int wordlen, int sgned);
-int acm_seek_pcm(ACMStream *acm, int pcm_pos);
-int acm_seek_time(ACMStream *acm, int pos_ms);
+int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos);
+int acm_seek_time(ACMStream *acm, unsigned pos_ms);
 const char *acm_strerror(int err);
 
 #endif
