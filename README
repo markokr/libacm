@@ -79,8 +79,34 @@ To specify some other location, use following arguments:
 
 To compile Windows binaries (needs mingw32):
 
-  make amp		- creates in_acm.dll
+  make amp		- creates in_libacm.dll
   make exe		- creates acmtool.exe
+
+Command line tools usage
+------------------------
+
+    $ acmtool -h
+    acmtool - libacm version 1.0
+    Decode: acmtool -d [-q][-m|-s] [-r|-n] -o outfile infile
+	    acmtool -d [-q][-m|-s] [-r|-n] infile [infile ...]
+    Other:  acmtool -i ACMFILE [ACMFILE ...]
+	    acmtool -M|-S ACMFILE [ACMFILE ...]
+    Commands:
+      -d     decode audio into WAV files
+      -i     show info about ACM files
+      -M     modify ACM header to have 1 channel
+      -S     modify ACM header to have 2 channels
+    Switches:
+      -m     force mono wav
+      -s     force stereo wav
+      -r     raw output - no wav header
+      -q     be quiet
+      -n     no output - for benchmarking
+      -o FN  output to file, can be used if single source file
+
+The mono/stereo options are necessary because for some ACM files
+the number of channels in header in wrong.  Usually those are
+game samples, which contain mono audio but are tagger as stereo.
 
 
 Status

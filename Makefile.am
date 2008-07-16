@@ -5,6 +5,16 @@ SUBDIRS = src plugins
 
 EXTRA_DIST = autogen.sh
 
+#
+# html
+#
+
+README.html: README
+	asciidoc -a toc $<
+
+html: README.html
+.PHONY: html
+
 ##
 ## Windows compilation
 ##
