@@ -17,8 +17,8 @@ but it's main feature is very fast decoding speed.
 NEWS
 ----
 
-Version 1.0 (in-progress)
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Version 1.0
+~~~~~~~~~~~
 
 * decoder: excpect EOF in more places - otherwise libacm
   complained about "unexpected eof".
@@ -33,6 +33,7 @@ files in full length and without complaining.
 * New separate plugin for Audacious 1.5+
 * Remove plugin for Beep Media Player
 * Rewrite plugin-gstreamer.c for GStreamer "Hell On Earth" 0.10
+* acmtool -d -o - writes to stdout.
 
 Version 0.9.2
 ~~~~~~~~~~~~~
