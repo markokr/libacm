@@ -155,13 +155,14 @@ int acm_seekable(ACMStream *acm)
 
 unsigned acm_bitrate(ACMStream *acm)
 {
-	unsigned long secs, bitrate;
+	unsigned long secs8, bitrate = 0;
 
 	if (acm_raw_total(acm) == 0)
 		return 13000;
 
-	secs = acm_pcm_total(acm) / acm_rate(acm);
-	bitrate = acm_raw_total(acm) / secs * 8;
+	secs8 = 8 * acm_pcm_total(acm) / acm_rate(acm);
+	if (secs8 > 0)
+		bitrate = acm_raw_total(acm) / secs8;
 	return bitrate;
 }
 
