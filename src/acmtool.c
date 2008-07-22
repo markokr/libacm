@@ -98,7 +98,7 @@ static void play_file(const char *fn)
 	char *buf;
 	unsigned int total_bytes, bytes_done = 0;
 
-	err = acm_open_file(&acm, fn);
+	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
 		printf("%s: %s\n", fn, acm_strerror(err));
 		return;
@@ -107,8 +107,6 @@ static void play_file(const char *fn)
 	fmt.bits = 16;
 	fmt.rate = acm_rate(acm);
 	fmt.channels = acm_channels(acm);
-	if (cf_force_chans)
-		fmt.channels = cf_force_chans;
 	fmt.byte_format = AO_FMT_LITTLE;
 
 	dev = open_audio(&fmt);
@@ -187,14 +185,14 @@ static char * makefn(const char *fn, const char *ext)
 		p += len; \
 	} while (0)
 
-static int write_wav_header(FILE *f, ACMStream *acm, unsigned cf_force_chans)
+static int write_wav_header(FILE *f, ACMStream *acm)
 {
 	unsigned char hdr[50], *p = hdr;
 	int res;
 	unsigned datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
 	
 	int code = 1;
-	unsigned n_channels = cf_force_chans ? cf_force_chans : acm_channels(acm);
+	unsigned n_channels = acm_channels(acm);
 	unsigned srate = acm_rate(acm);
 	unsigned avg_bps = srate * n_channels * ACM_WORD;
 	unsigned significant_bits = ACM_WORD * 8;
@@ -233,7 +231,7 @@ static void decode_file(const char *fn, const char *fn2)
 	FILE *fo = NULL;
 	int bytes_done = 0, total_bytes;
 
-	err = acm_open_file(&acm, fn);
+	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
 		printf("%s: %s\n", fn, acm_strerror(err));
 		return;
@@ -253,7 +251,7 @@ static void decode_file(const char *fn, const char *fn2)
 	}
 
 	if ((!cf_raw) && (!cf_no_output)) {
-		if ((err = write_wav_header(fo, acm, cf_force_chans)) < 0) {
+		if ((err = write_wav_header(fo, acm)) < 0) {
 			perror(fn2);
 			fclose(fo);
 			acm_close(acm);
@@ -365,7 +363,7 @@ static void show_info(const char *fn)
 	int err;
 	ACMStream *acm;
 
-	err = acm_open_file(&acm, fn);
+	err = acm_open_file(&acm, fn, 0);
 	if (err < 0) {
 		printf("%s: %s\n", fn, acm_strerror(err));
 		return;

@@ -24,6 +24,8 @@
 #include "winamp.h"
 #include "libacm.h"
 
+#define FORCE_CHANS 2
+
 /* 576 samples seems preferred by winamp */
 #define SBLOCK 576
 
@@ -72,7 +74,7 @@ static void get_song_info(char *filename, char *title, int *length_in_ms)
 	ACMStream *acm;
 
 	if (filename && *filename) {
-		if (acm_open_file(&acm, filename) < 0)
+		if (acm_open_file(&acm, filename, FORCE_CHANS) < 0)
 			return;
 		fn = filename;
 	} else {
@@ -218,7 +220,7 @@ static int play(char *fn)
 	DWORD thread_id;
 	int err, latency;
 
-	if ((err = acm_open_file(&acm, fn)) < 0)
+	if ((err = acm_open_file(&acm, fn, FORCE_CHANS)) < 0)
 		return 1;
 
 	latency = plugin->outMod->Open(acm_rate(acm), acm_channels(acm),
@@ -276,7 +278,7 @@ static int file_info_box(char *fn, HWND hwnd)
 	int err, kbps, secs;
 	const ACMInfo *inf;
 	
-	err = acm_open_file(&acm, fn);
+	err = acm_open_file(&acm, fn, FORCE_CHANS);
 	if (err < 0)
 		return 1;
 

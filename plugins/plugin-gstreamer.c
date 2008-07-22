@@ -42,6 +42,8 @@
 #define ACM_NATIVE_BE 1
 #endif
 
+#define FORCE_CHANS 2
+
 /* default request length */
 #define REQLEN (4 * 1024)
 
@@ -345,7 +347,7 @@ static gboolean acmdec_init_decoder(AcmDec *acm)
 	GstCaps *caps;
 
 	GST_DEBUG_OBJECT(acm, "init decoder");
-	res = acm_open_decoder(&acm->ctx, acm, pull_cb);
+	res = acm_open_decoder(&acm->ctx, acm, pull_cb, FORCE_CHANS);
 	if (res < 0) {
 		GST_DEBUG_OBJECT(acm, "decoder init failed: %s", acm_strerror(res));
 		return FALSE;
@@ -542,8 +544,8 @@ static gboolean acmdec_src_check_get_range (GstPad *pad)
 static GstFlowReturn acmdec_src_get_range(GstPad *srcpad, guint64 offset, guint size, GstBuffer **buf)
 {
 	AcmDec *acm = ACMDEC(GST_PAD_PARENT(srcpad));
-	int req_pos, got;
-	int frame;
+	unsigned int req_pos;
+	int got, frame;
 	gint64 pcmpos, pcmlen;
 	GstFlowReturn flow = GST_FLOW_ERROR;
 

@@ -87,13 +87,13 @@ struct ACMStream {
 typedef struct ACMStream ACMStream;
 
 /* decode.c */
-int acm_open_decoder(ACMStream **res, void *io_arg, acm_io_callbacks io);
+int acm_open_decoder(ACMStream **res, void *io_arg, acm_io_callbacks io, int force_chans);
 int acm_read(ACMStream *acm, void *buf, unsigned nbytes,
 		int bigendianp, int wordlen, int sgned);
 void acm_close(ACMStream *acm);
 
 /* util.c */
-int acm_open_file(ACMStream **acm, const char *filename);
+int acm_open_file(ACMStream **acm, const char *filename, int force_chans);
 const ACMInfo *acm_info(ACMStream *acm);
 int acm_seekable(ACMStream *acm);
 unsigned acm_bitrate(ACMStream *acm);

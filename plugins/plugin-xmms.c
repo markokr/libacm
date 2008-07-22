@@ -36,6 +36,8 @@
 
 #include "libacm.h"
 
+#define FORCE_CHANS 2
+
 typedef struct {
 	ACMStream *acm;
 	short eof, going;
@@ -95,7 +97,7 @@ static void get_song_info(gchar * filename, gchar ** title, gint * length)
 	ACMStream *acm;
 	int err;
 
-	if ((err = acm_open_file(&acm, filename)) < 0) {
+	if ((err = acm_open_file(&acm, filename, FORCE_CHANS)) < 0) {
 		fprintf(stderr, "get_song_info: %d\n", err);
 		return;
 	}
@@ -209,7 +211,7 @@ static void play_file(gchar * filename)
 		g_free(input);
 		input = NULL;
 	}
-	if ((err = acm_open_file(&acm, filename)) < 0)
+	if ((err = acm_open_file(&acm, filename, FORCE_CHANS)) < 0)
 		return;
 
 	info = acm_info(acm);
@@ -261,7 +263,7 @@ static void file_info_box(char *filename)
 	GtkWidget *dlg;
 	const ACMInfo *inf;
 
-	err = acm_open_file(&acm, filename);
+	err = acm_open_file(&acm, filename, FORCE_CHANS);
 	if (err < 0)
 		return;
 	

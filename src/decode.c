@@ -713,9 +713,11 @@ static int read_header(ACMStream *acm)
 	if (acm->total_values == 0)
 		return ACM_ERR_NOT_ACM;
 	GET_BITS(acm->info.channels, acm, 16);
-	if (acm->info.channels <  1)
+	if (acm->info.channels < 1 || acm->info.channels > 2)
 		return ACM_ERR_NOT_ACM;
 	GET_BITS(acm->info.rate, acm, 16);
+	if (acm->info.rate < 4096)
+		return ACM_ERR_NOT_ACM;
 	
 	GET_BITS(acm->info.acm_level, acm, 4);
 	GET_BITS(acm->info.acm_rows, acm, 12);
@@ -726,7 +728,7 @@ static int read_header(ACMStream *acm)
  * Public functions
  ***********************************************/
 
-int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
+int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int force_chans)
 {
 	int err = ACM_ERR_OTHER;
 	ACMStream *acm;
@@ -754,6 +756,10 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb)
 	err = ACM_ERR_NOT_ACM;
 	if (read_header(acm) < 0)
 		goto err_out;
+
+	/* overwrite channel info if requested */
+	if (force_chans > 0)
+		acm->info.channels = force_chans;
 
 	/* calculate blocks */
 	acm->info.acm_cols = 1 << acm->info.acm_level;

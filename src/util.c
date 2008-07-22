@@ -89,7 +89,7 @@ static int _get_length_file(void *arg)
 	return len;
 }
 
-int acm_open_file(ACMStream **res, const char *filename)
+int acm_open_file(ACMStream **res, const char *filename, int force_chans)
 {
 	int err;
 	FILE *f;
@@ -105,7 +105,7 @@ int acm_open_file(ACMStream **res, const char *filename)
 	io.close_func = _close_file;
 	io.get_length_func = _get_length_file;
 
-	if ((err = acm_open_decoder(&acm, f, io)) < 0) {
+	if ((err = acm_open_decoder(&acm, f, io, force_chans)) < 0) {
 		fclose(f);
 		return err;
 	}
