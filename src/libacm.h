@@ -39,6 +39,7 @@ typedef struct ACMInfo {
 	unsigned rate;
 	unsigned acm_id;
 	unsigned acm_version;
+	unsigned acm_channels;		/* channels from header (usually wrong) */
 	unsigned acm_level;
 	unsigned acm_cols;		/* 1 << acm_level */
 	unsigned acm_rows;

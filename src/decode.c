@@ -715,12 +715,15 @@ static int read_header(ACMStream *acm)
 	GET_BITS(acm->info.channels, acm, 16);
 	if (acm->info.channels < 1 || acm->info.channels > 2)
 		return ACM_ERR_NOT_ACM;
+	acm->info.acm_channels = acm->info.channels;
 	GET_BITS(acm->info.rate, acm, 16);
 	if (acm->info.rate < 4096)
 		return ACM_ERR_NOT_ACM;
 	
 	GET_BITS(acm->info.acm_level, acm, 4);
 	GET_BITS(acm->info.acm_rows, acm, 12);
+	if (!acm->info.acm_rows)
+		return ACM_ERR_NOT_ACM;
 	return 0;
 }
 
