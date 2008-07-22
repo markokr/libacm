@@ -15,6 +15,7 @@ AC_PROG_LN_S
 
 AC_DISABLE_STATIC
 AM_PROG_LIBTOOL
+AM_PROG_CC_C_O
 
 dnl Additional gcc tuning
 if test x"$GCC" = xyes; then
@@ -127,14 +128,28 @@ if test $gst10_plugin = yes; then
   AC_SUBST([GST10_DEST])
 fi
 
+dnl Check for libao
+have_ao=no
+PKG_CHECK_MODULES([AO], [ao], [have_ao=yes],
+   [AC_MSG_WARN([*** libao-dev not found, audio output disabled ***])])
+
+if test "$have_ao" = "yes"; then
+  AC_SUBST([AO_CFLAGS])
+  AC_SUBST([AO_LIBS])
+  AC_DEFINE([HAVE_AO], 1, [Define 1 if libao is usable])
+fi
+
 AM_CONDITIONAL(MAKE_XMMS_PLUGIN, test "$xmms_plugin" = "yes")
 AM_CONDITIONAL(MAKE_AUDACIOUS_PLUGIN, test "$audacious_plugin" = "yes")
 AM_CONDITIONAL(MAKE_GST10_PLUGIN, test "$gst10_plugin" = "yes")
+AM_CONDITIONAL(USE_LIBAO, test "$have_ao" = "yes")
 
 AC_CONFIG_FILES([Makefile src/Makefile plugins/Makefile])
 AC_OUTPUT
 
 
+echo ""
+echo "Audio output:         $have_ao"
 echo ""
 echo "Plugins:"
 echo "  XMMS:               $xmms_plugin"

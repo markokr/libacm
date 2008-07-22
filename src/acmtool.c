@@ -36,6 +36,128 @@ static int cf_force_chans = 0;
 static int cf_no_output = 0;
 static int cf_quiet = 0;
 
+static void show_header(const char *fn, ACMStream *acm)
+{
+	int kbps;
+	const ACMInfo *inf;
+	if (cf_quiet)
+		return;
+	inf = acm_info(acm);
+	kbps = acm_bitrate(acm) / 1000;
+	printf("%s: Samples:%d Chans:%d Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
+			fn, acm_pcm_total(acm), acm_channels(acm), acm_rate(acm),
+			inf->acm_level, inf->acm_rows, kbps);
+}
+
+#ifdef HAVE_AO
+
+/*
+ * Audio playback with libao
+ */
+
+#include <ao/ao.h>
+
+static ao_device *dev = NULL;
+static ao_sample_format old_fmt;
+
+static ao_device *open_audio(ao_sample_format *fmt)
+{
+	if (dev && memcmp(fmt, &old_fmt, sizeof(old_fmt))) {
+		ao_close(dev);
+		dev = NULL;
+	}
+	if (dev == NULL) {
+		int id = ao_default_driver_id();
+		if (id < 0) {
+			fprintf(stderr, "failed to find audio driver\n");
+			exit(1);
+		}
+		dev = ao_open_live(id, fmt, NULL);
+		old_fmt = *fmt;
+	}
+	if (dev == NULL) {
+		fprintf(stderr, "failed to open audio device\n");
+		exit(1);
+	}
+	return dev;
+}
+
+static void close_audio(void)
+{
+	if (dev)
+		ao_close(dev);
+	dev = NULL;
+}
+
+static void play_file(const char *fn)
+{
+	ACMStream *acm;
+	int err, res, buflen;
+	ao_sample_format fmt;
+	ao_device *dev;
+	char *buf;
+	unsigned int total_bytes, bytes_done = 0;
+
+	err = acm_open_file(&acm, fn);
+	if (err < 0) {
+		printf("%s: %s\n", fn, acm_strerror(err));
+		return;
+	}
+	show_header(fn, acm);
+	fmt.bits = 16;
+	fmt.rate = acm_rate(acm);
+	fmt.channels = acm_channels(acm);
+	if (cf_force_chans)
+		fmt.channels = cf_force_chans;
+	fmt.byte_format = AO_FMT_LITTLE;
+
+	dev = open_audio(&fmt);
+
+	buflen = 4*1024;
+	buf = malloc(buflen);
+
+	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
+	while (bytes_done < total_bytes) {
+		res = acm_read_loop(acm, buf, buflen/ACM_WORD, 0,2,1);
+		if (res == 0)
+			break;
+		if (res > 0) {
+			bytes_done += res;
+			res = ao_play(dev, buf, res);
+		} else {
+			if (!cf_quiet)
+				printf("%s: %s\n", fn, acm_strerror(res));
+			break;
+		}
+	}
+
+	memset(buf, 0, buflen);
+	if (bytes_done < total_bytes && !cf_quiet) 
+		fprintf(stderr, "adding filler_samples: %d\n",
+				total_bytes - bytes_done);
+	while (bytes_done < total_bytes) {
+		int bs;
+		if (bytes_done + buflen > total_bytes) {
+			bs = total_bytes - bytes_done;
+		} else {
+			bs = buflen;
+		}
+		res = ao_play(dev, buf, bs);
+		if (res != bs)
+			break;
+		bytes_done += res;
+	}
+
+	acm_close(acm);
+	free(buf);
+}
+
+#endif /* HAVE_AO */
+
+/*
+ * WAV writing
+ */
+
 static char * makefn(const char *fn, const char *ext)
 {
 	char *dstfn, *p;
@@ -101,19 +223,6 @@ static int write_wav_header(FILE *f, ACMStream *acm, unsigned cf_force_chans)
 		return -1;
 	else
 		return 0;
-}
-
-static void show_header(const char *fn, ACMStream *acm)
-{
-	int kbps;
-	const ACMInfo *inf;
-	if (cf_quiet)
-		return;
-	inf = acm_info(acm);
-	kbps = acm_bitrate(acm) / 1000;
-	printf("%s: Samples:%d Chans:%d Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
-			fn, acm_pcm_total(acm), acm_channels(acm), acm_rate(acm),
-			inf->acm_level, inf->acm_rows, kbps);
 }
 
 static void decode_file(const char *fn, const char *fn2)
@@ -201,6 +310,10 @@ static void decode_file(const char *fn, const char *fn2)
 	free(buf);
 }
 
+/*
+ * Modify header
+ */
+
 static void set_channels(const char *fn, int n_chan)
 {
 	FILE *f;
@@ -243,6 +356,10 @@ static void set_channels(const char *fn, int n_chan)
 	fclose(f);
 }
 
+/*
+ * Just show info
+ */
+
 static void show_info(const char *fn)
 {
 	int err;
@@ -261,6 +378,7 @@ static void show_info(const char *fn)
 static void usage(int err)
 {
 	printf("%s\n", version);
+	printf("Play:   acmtool -p [-q][-m|-s] infile [infile ...]\n");
 	printf("Decode: acmtool -d [-q][-m|-s] [-r|-n] -o outfile infile\n");
 	printf("        acmtool -d [-q][-m|-s] [-r|-n] infile [infile ...]\n");
 	printf("Other:  acmtool -i ACMFILE [ACMFILE ...]\n");
@@ -286,10 +404,10 @@ int main(int argc, char *argv[])
 	char *fn, *fn2 = NULL;
 	int cmd_decode = 0;
 	int cmd_chg_channels = 0;
-	int cmd_info = 0;
+	int cmd_info = 0, cmd_play = 0;
 	int cf_set_chans = 0;
 
-	while ((c = getopt(argc, argv, "diMSqhrmsnvo:")) != -1) {
+	while ((c = getopt(argc, argv, "pdiMSqhrmsnvo:")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -299,6 +417,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'i':
 			cmd_info = 1;
+			break;
+		case 'p':
+			cmd_play = 1;
 			break;
 		case 'M':
 			cmd_chg_channels = 1;
@@ -334,9 +455,26 @@ int main(int argc, char *argv[])
 			usage(1);
 		}
 	}
-	i = cmd_chg_channels + cmd_info + cmd_decode;
-	if (i < 1 || i > 1)
+	i = cmd_chg_channels + cmd_info + cmd_decode + cmd_play;
+	if (i < 1 || i > 1) {
+		fprintf(stderr, "only one command at a time please\n");
 		usage(1);
+	}
+
+	/* play file */
+	if (cmd_play) {
+#ifdef HAVE_AO
+		ao_initialize();
+		for (i = optind; i < argc; i++)
+			play_file(argv[i]);
+		close_audio();
+		ao_shutdown();
+		return 0;
+#else
+		fprintf(stderr, "For audio output, please compile with libao.\n");
+		return 1;
+#endif
+	}
 
 	/* show info */
 	if (cmd_info) {
