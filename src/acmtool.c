@@ -62,7 +62,7 @@ static ao_sample_format old_fmt;
 
 static ao_device *open_audio(ao_sample_format *fmt)
 {
-	if (dev && memcmp(fmt, &old_fmt, sizeof(old_fmt))) {
+	if (dev && memcmp(fmt, &old_fmt, sizeof(old_fmt)) != 0) {
 		ao_close(dev);
 		dev = NULL;
 	}
@@ -376,19 +376,20 @@ static void show_info(const char *fn)
 static void usage(int err)
 {
 	printf("%s\n", version);
-	printf("Play:   acmtool -p [-q][-m|-s] infile [infile ...]\n");
-	printf("Decode: acmtool -d [-q][-m|-s] [-r|-n] -o outfile infile\n");
-	printf("        acmtool -d [-q][-m|-s] [-r|-n] infile [infile ...]\n");
-	printf("Other:  acmtool -i ACMFILE [ACMFILE ...]\n");
-	printf("        acmtool -M|-S ACMFILE [ACMFILE ...]\n");
+	printf("Play:   acmtool -p [-q][-m|-s] acmfile [acmfile ...]\n");
+	printf("Decode: acmtool -d [-q][-m|-s] [-r|-n] -o wavfile acmfile\n");
+	printf("        acmtool -d [-q][-m|-s] [-r|-n] acmfile [acmfile ...]\n");
+	printf("Other:  acmtool -i acmfile [acmfile ...]\n");
+	printf("        acmtool -M|-S acmfile [acmfile ...]\n");
 	printf("Commands:\n");
+	printf("  -p     play file(s)\n");
 	printf("  -d     decode audio into WAV files\n");
 	printf("  -i     show info about ACM files\n");
 	printf("  -M     modify ACM header to have 1 channel\n");
 	printf("  -S     modify ACM header to have 2 channels\n");
 	printf("Switches:\n");
-	printf("  -m     force mono wav\n");
-	printf("  -s     force stereo wav\n");
+	printf("  -m     force mono\n");
+	printf("  -s     force stereo (default)\n");
 	printf("  -r     raw output - no wav header\n");
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
