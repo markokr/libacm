@@ -4,6 +4,8 @@ EXTRA_DIST = plugin-xmms.c plugin-audacious.c plugin-gstreamer.c plugin-winamp.c
 acm_cpp = -I$(top_srcdir)/src
 acm_lib = $(top_builddir)/src/libacm.la
 
+modflags = -module -avoid-version -no-undefined
+
 if MAKE_XMMS_PLUGIN
 xmms_plugindir = $(XMMS_DEST)
 xmms_plugin_LTLIBRARIES = xmms-acm.la
@@ -22,15 +24,15 @@ endif
 xmms_acm_la_SOURCES = plugin-xmms.c
 xmms_acm_la_CPPFLAGS = $(XMMS_CFLAGS) $(acm_cpp)
 xmms_acm_la_LIBADD = $(acm_lib)
-xmms_acm_la_LDFLAGS = $(XMMS_LIBS) -module -avoid-version
+xmms_acm_la_LDFLAGS = $(XMMS_LIBS) $(modflags) -export-symbols-regex get_plugin_info
 
 audacious_acm_la_SOURCES = plugin-audacious.c
 audacious_acm_la_CPPFLAGS = $(AUDACIOUS_CFLAGS) $(acm_cpp)
 audacious_acm_la_LIBADD = $(acm_lib)
-audacious_acm_la_LDFLAGS = $(AUDACIOUS_LIBS) -module -avoid-version
+audacious_acm_la_LDFLAGS = $(AUDACIOUS_LIBS) $(modflags) -export-symbols-regex get_plugin_info
 
 acmdec_gst10_la_SOURCES = plugin-gstreamer.c
 acmdec_gst10_la_CPPFLAGS = $(GST10_CFLAGS) $(acm_cpp)
 acmdec_gst10_la_LIBADD = $(acm_lib) -lgstbase-0.10
-acmdec_gst10_la_LDFLAGS = $(GST10_LIBS) -module -avoid-version
+acmdec_gst10_la_LDFLAGS = $(GST10_LIBS) $(modflags) -export-symbols-regex gst_plugin_desc
 
