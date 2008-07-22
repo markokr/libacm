@@ -44,9 +44,9 @@ static void show_header(const char *fn, ACMStream *acm)
 		return;
 	inf = acm_info(acm);
 	kbps = acm_bitrate(acm) / 1000;
-	printf("%s: Samples:%d Chans:%d Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
-			fn, acm_pcm_total(acm), acm_channels(acm), acm_rate(acm),
-			inf->acm_level, inf->acm_rows, kbps);
+	printf("%s: Samples:%d Chans:%d(%d) Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
+			fn, acm_pcm_total(acm), acm_channels(acm), acm->info.acm_channels,
+			acm_rate(acm), inf->acm_level, inf->acm_rows, kbps);
 }
 
 #ifdef HAVE_AO
@@ -458,6 +458,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "only one command at a time please\n");
 		usage(1);
 	}
+
+	/* by default force stereo */
+	if (!cf_force_chans)
+		cf_force_chans = 2;
 
 	/* play file */
 	if (cmd_play) {
