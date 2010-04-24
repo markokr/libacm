@@ -100,7 +100,7 @@ static void play_file(const char *fn)
 
 	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
-		printf("%s: %s\n", fn, acm_strerror(err));
+		fprintf(stderr, "%s: %s\n", fn, acm_strerror(err));
 		return;
 	}
 	show_header(fn, acm);
@@ -123,16 +123,15 @@ static void play_file(const char *fn)
 			bytes_done += res;
 			res = ao_play(dev, buf, res);
 		} else {
-			if (!cf_quiet)
-				printf("%s: %s\n", fn, acm_strerror(res));
+			fprintf(stderr, "%s: %s\n", fn, acm_strerror(res));
 			break;
 		}
 	}
 
 	memset(buf, 0, buflen);
-	if (bytes_done < total_bytes && !cf_quiet) 
-		fprintf(stderr, "adding filler_samples: %d\n",
-				total_bytes - bytes_done);
+	if (bytes_done < total_bytes)
+		fprintf(stderr, "%s: adding filler_samples: %d\n",
+				fn, total_bytes - bytes_done);
 	while (bytes_done < total_bytes) {
 		int bs;
 		if (bytes_done + buflen > total_bytes) {
@@ -233,22 +232,25 @@ static void decode_file(const char *fn, const char *fn2)
 
 	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
-		printf("%s: %s\n", fn, acm_strerror(err));
+		fprintf(stderr, "%s: %s\n", fn, acm_strerror(err));
 		return;
 	}
-	show_header(fn, acm);
 
 	if (!cf_no_output) {
-		if (!strcmp(fn2, "-"))
+		if (!strcmp(fn2, "-")) {
 			fo = stdout;
-		else
+			cf_quiet = 1;
+		} else {
 			fo = fopen(fn2, "wb");
+		}
 		if (fo == NULL) {
 			perror(fn2);
 			acm_close(acm);
 			return;
 		}
 	}
+
+	show_header(fn, acm);
 
 	if ((!cf_raw) && (!cf_no_output)) {
 		if ((err = write_wav_header(fo, acm)) < 0) {
@@ -271,22 +273,21 @@ static void decode_file(const char *fn, const char *fn2)
 			if (!cf_no_output) {
 				res2 = fwrite(buf, 1, res, fo);
 				if (res2 != res) {
-					printf("write error\n");
+					fprintf(stderr, "%s: write error\n", fn2);
 					break;
 				}
 			}
 			bytes_done += res;
 		} else {
-			if (!cf_quiet)
-				printf("%s: %s\n", fn, acm_strerror(res));
+			fprintf(stderr, "%s: %s\n", fn, acm_strerror(res));
 			break;
 		}
 	}
 
 	memset(buf, 0, buflen);
-	if (bytes_done < total_bytes && !cf_quiet) 
-		fprintf(stderr, "adding filler_samples: %d\n",
-				total_bytes - bytes_done);
+	if (bytes_done < total_bytes)
+		fprintf(stderr, "%s: adding filler_samples: %d\n",
+			fn, total_bytes - bytes_done);
 	while (bytes_done < total_bytes) {
 		int bs;
 		if (bytes_done + buflen > total_bytes) {
@@ -450,7 +451,7 @@ int main(int argc, char *argv[])
 			printf("%s\n", version);
 			exit(0);
 		default:
-			printf("bad arg: -%c\n", c);
+			fprintf(stderr, "bad arg: -%c\n", c);
 			usage(1);
 		}
 	}
