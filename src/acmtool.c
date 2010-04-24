@@ -363,7 +363,7 @@ static void show_info(const char *fn)
 	int err;
 	ACMStream *acm;
 
-	err = acm_open_file(&acm, fn, 0);
+	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
 		printf("%s: %s\n", fn, acm_strerror(err));
 		return;
@@ -459,10 +459,6 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "only one command at a time please\n");
 		usage(1);
 	}
-
-	/* by default force stereo */
-	if (!cf_force_chans)
-		cf_force_chans = 2;
 
 	/* play file */
 	if (cmd_play) {

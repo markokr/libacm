@@ -694,16 +694,57 @@ static int output_values(int *src, unsigned char *dst, int n,
 }
 
 /*
- * Header parsing.
+ * WAVC (compressed WAV) files are ACM files with additional header.
+ *
+ * 'WAVC' + 'V1.00' + uncompr(4b) + compr(4b) + 12b
  */
+
+#define WAVC_ID 0x564157  /* 'WAV' */
+
+static int read_wavc_header(ACMStream *acm)
+{
+	static const unsigned short expect[12] = {
+		/* 'V1.0', raw_size, acm_size */
+		0x3156, 0x302E, 0,0, 0,0,
+		/* hdrlen?, chans?, bits?, hz */
+		28,0, 1, 16, 22050, 0
+	};
+	unsigned short i, buf[12];
+
+	for (i = 0; i < 12; i++)
+		GET_BITS(buf[i], acm, 16);
+	if (memcmp(buf, expect, 4) != 0)
+		return -1;
+	/* full comparision is too strict */
+	if (0 && memcmp(buf + 6, expect + 6, 12) != 0)
+		return -1;
+	/* just make sure the magic 28 is there */
+	if (expect[6] != buf[6])
+		return -1;
+
+	acm->wavc_file = 1;
+	return 0;
+}
 
 static int read_header(ACMStream *acm)
 {
-	int tmp;
+	unsigned int tmp;
+
 	/* read header */
-	GET_BITS(acm->info.acm_id, acm, 24);
-	if (acm->info.acm_id != ACM_ID)
+
+	GET_BITS(tmp, acm, 24);
+	if (tmp == WAVC_ID) {
+		GET_BITS(tmp, acm, 8);
+		if (tmp != 'C')
+			return ACM_ERR_NOT_ACM;
+		if (read_wavc_header(acm) < 0)
+			return ACM_ERR_NOT_ACM;
+		GET_BITS(tmp, acm, 24);
+	}
+	if (tmp != ACM_ID)
 		return ACM_ERR_NOT_ACM;
+	acm->info.acm_id = tmp;
+
 	GET_BITS(acm->info.acm_version, acm, 8);
 	if (acm->info.acm_version != 1)
 		return ACM_ERR_NOT_ACM;
@@ -760,9 +801,18 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int for
 	if (read_header(acm) < 0)
 		goto err_out;
 
-	/* overwrite channel info if requested */
+	/*
+	 * Overwrite channel info if requested, otherwise
+	 * ignore the channel count on plain ACM files,
+	 * it is frequently wrong, and actual 1-channel
+	 * files are not interising to listen to anyway (samples).
+	 *
+	 * Trust WAVC files, as they seem to be correct?
+	 */
 	if (force_chans > 0)
 		acm->info.channels = force_chans;
+	else if (!acm->wavc_file && acm->info.channels < 2)
+		acm->info.channels = 2;
 
 	/* calculate blocks */
 	acm->info.acm_cols = 1 << acm->info.acm_level;

@@ -82,6 +82,7 @@ struct ACMStream {
 	/* result */
 	unsigned block_ready:1;
 	unsigned file_eof:1;
+	unsigned wavc_file:1;
 	unsigned stream_pos;			/* in words. absolute */
 	unsigned block_pos;			/* in words, relative */
 };

@@ -36,8 +36,6 @@
 
 #include "libacm.h"
 
-#define FORCE_CHANS 2
-
 #define acm_debug(fmt, args...)  do { \
 	if (0) { \
 	char buf[256]; snprintf(buf, sizeof(buf), fmt, ## args); \
@@ -318,7 +316,7 @@ static int acmx_open_vfs(ACMStream **acm_p, gchar *url)
 	if (stream == NULL)
 		return ACM_ERR_OPEN;
 
-	res = acm_open_decoder(acm_p, stream, acmx_vfs_cb, FORCE_CHANS);
+	res = acm_open_decoder(acm_p, stream, acmx_vfs_cb, 0);
 	if (res < 0)
 		aud_vfs_fclose(stream);
 	return res;

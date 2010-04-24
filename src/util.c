@@ -25,6 +25,7 @@
 
 #include "libacm.h"
 
+#define WAVC_HEADER_LEN	28
 #define ACM_HEADER_LEN	14
 
 /*
@@ -213,12 +214,17 @@ int acm_seek_time(ACMStream *acm, unsigned time_ms)
 int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 {
 	unsigned word_pos = pcm_pos * acm->info.channels;
+	unsigned start_ofs;
 
 	if (word_pos < acm->stream_pos) {
 		if (acm->io.seek_func == NULL)
 			return ACM_ERR_NOT_SEEKABLE;
 
-		if (acm->io.seek_func(acm->io_arg,ACM_HEADER_LEN,SEEK_SET) < 0)
+		start_ofs = ACM_HEADER_LEN;
+		if (acm->wavc_file)
+			start_ofs += WAVC_HEADER_LEN;
+
+		if (acm->io.seek_func(acm->io_arg, start_ofs, SEEK_SET) < 0)
 			return ACM_ERR_NOT_SEEKABLE;
 	
 		acm->file_eof = 0;

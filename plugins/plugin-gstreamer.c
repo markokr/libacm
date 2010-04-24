@@ -42,8 +42,6 @@
 #define ACM_NATIVE_BE 1
 #endif
 
-#define FORCE_CHANS 2
-
 /* default request length */
 #define REQLEN (4 * 1024)
 
@@ -347,7 +345,7 @@ static gboolean acmdec_init_decoder(AcmDec *acm)
 	GstCaps *caps;
 
 	GST_DEBUG_OBJECT(acm, "init decoder");
-	res = acm_open_decoder(&acm->ctx, acm, pull_cb, FORCE_CHANS);
+	res = acm_open_decoder(&acm->ctx, acm, pull_cb, 0);
 	if (res < 0) {
 		GST_DEBUG_OBJECT(acm, "decoder init failed: %s", acm_strerror(res));
 		return FALSE;
