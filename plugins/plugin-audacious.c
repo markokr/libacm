@@ -45,7 +45,7 @@
 static GThread *decode_thread;
 static int acmx_seek_to = -1;
 
-static int acmx_open_vfs(ACMStream **acm_p, gchar *url);
+static int acmx_open_vfs(ACMStream **acm_p, const gchar *url);
 
 /*
  * useful stuff
@@ -63,7 +63,7 @@ static gchar *get_title(const gchar * filename)
  * module functions
  */
 
-static gint acmx_is_our_file(gchar * filename)
+static gint acmx_is_our_file(const gchar * filename)
 {
 	ACMStream *acm;
 
@@ -73,7 +73,7 @@ static gint acmx_is_our_file(gchar * filename)
 	return TRUE;
 }
 
-static Tuple *acmx_get_song_tuple(gchar * filename)
+static Tuple *acmx_get_song_tuple(const gchar * filename)
 {
 	ACMStream *acm;
 	const ACMInfo *info;
@@ -122,25 +122,21 @@ static void acmx_seek(InputPlayback *pback, gint secs)
 		g_usleep(20000);
 }
 
-#define BLK_SAMPLES 512
 
-static void read_and_play(ACMStream *acm, InputPlayback *pback, gchar *buf)
+static void read_and_play(ACMStream *acm, InputPlayback *pback, gchar *buf, int block_len)
 {
-	int got_bytes, need_bytes;
+	int got_bytes;
 
-	need_bytes = BLK_SAMPLES * acm_channels(acm) * ACM_WORD;
-	got_bytes = acm_read_loop(acm, buf, need_bytes, 0, 2, 1);
+	got_bytes = acm_read_loop(acm, buf, block_len, 0, 2, 1);
 	if (got_bytes > 0) {
-		pback->plugin->add_vis_pcm(pback->output->written_time(),
-			FMT_S16_LE, acm_channels(acm), got_bytes, buf);
-
-		while (pback->output->buffer_free() < got_bytes
-				&& pback->playing && acmx_seek_to == -1)
-			g_usleep(10000);
-
-		if (pback->playing && acmx_seek_to == -1)
-			pback->output->write_audio(buf, got_bytes);
+		pback->pass_audio(pback, FMT_S16_LE, acm_channels(acm), got_bytes, buf, &pback->playing);
 	} else {
+		/* flush buffer */
+		while (pback->output->buffer_playing()) {
+			if (!pback->playing)
+				break;
+			g_usleep(10000);
+		}
 		pback->eof = TRUE;
 	}
 }
@@ -156,13 +152,15 @@ static void try_seeking(ACMStream *acm, InputPlayback *pback)
 	acmx_seek_to = -1;
 }
 
+#define BLK_SAMPLES 512
+
 static void play_file(InputPlayback *pback)
 {
 	gchar *filename = pback->filename;
 	gchar *name;
 	gint res;
 	ACMStream *acm;
-	int err;
+	int err, block_len;
 	gchar *buf;
 	
 	if ((err = acmx_open_vfs(&acm, filename)) < 0)
@@ -183,29 +181,32 @@ static void play_file(InputPlayback *pback)
 	/*
 	 * main loop
 	 */
-	buf = g_malloc0(BLK_SAMPLES * ACM_WORD * acm_channels(acm));
+	block_len = BLK_SAMPLES * acm_channels(acm) * ACM_WORD;
+	buf = g_malloc0(block_len);
 	while (pback->playing) {
 		if (acmx_seek_to >= 0)
 			try_seeking(acm, pback);
 		
 		if (!pback->eof) {
-			read_and_play(acm, pback, buf);
+			read_and_play(acm, pback, buf, block_len);
+		} else if (pback->output->buffer_playing()) {
+			g_usleep(10000);
 		} else {
-			pback->playing = 0;
+			break;
 		}
 	}
 
 	if (!pback->error) {
 		/* flush buffer */
 		while (pback->eof && pback->output->buffer_playing()) {
-			g_usleep(50000);
+			g_usleep(10000);
 		}
-
-		pback->output->close_audio();
 	}
 
 	g_free(buf);
 	acm_close(acm);
+	pback->output->close_audio();
+	pback->playing = 0;
 }
 
 static void acmx_play_file(InputPlayback *pback)
@@ -307,7 +308,7 @@ static const acm_io_callbacks acmx_vfs_cb = {
 	acmx_vfs_get_length
 };
 
-static int acmx_open_vfs(ACMStream **acm_p, gchar *url)
+static int acmx_open_vfs(ACMStream **acm_p, const gchar *url)
 {
 	VFSFile *stream;
 	int res;
