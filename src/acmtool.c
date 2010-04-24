@@ -1,9 +1,9 @@
 /*
  * Command line tool for ACM manipulating.
  *
- * Copyright (c) 2004-2008, Marko Kreen
+ * Copyright (c) 2004-2010, Marko Kreen
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
