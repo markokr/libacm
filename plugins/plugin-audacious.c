@@ -157,7 +157,6 @@ static void try_seeking(ACMStream *acm, InputPlayback *pback)
 static void play_file(InputPlayback *pback)
 {
 	gchar *filename = pback->filename;
-	gchar *name;
 	gint res;
 	ACMStream *acm;
 	int err, block_len;
@@ -166,17 +165,14 @@ static void play_file(InputPlayback *pback)
 	if ((err = acmx_open_vfs(&acm, filename)) < 0)
 		return;
 
-        name = get_title(filename);
-        pback->set_params(pback, name, acm_time_total(acm), acm_bitrate(acm),
-			  acm_rate(acm), acm_channels(acm));
-	g_free(name);
+	pback->set_params(pback, NULL, 0, acm_bitrate(acm), acm_rate(acm), acm_channels(acm));
 
 	res = pback->output->open_audio(FMT_S16_LE, acm_rate(acm), acm_channels(acm));
 	if (res == 0) {
 		pback->error = TRUE;
 		acm_close(acm);
 		return;
-        }
+	}
 
 	/*
 	 * main loop
