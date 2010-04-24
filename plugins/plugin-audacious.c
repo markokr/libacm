@@ -42,7 +42,6 @@
 	printf("%s(%d): %s\n", __func__, __LINE__, buf); \
 } } while (0)
 
-static GThread *decode_thread;
 static int acmx_seek_to = -1;
 
 static int acmx_open_vfs(ACMStream **acm_p, const gchar *url);
@@ -211,7 +210,6 @@ static void acmx_play_file(InputPlayback *pback)
 	pback->eof = 0;
 	pback->error = FALSE;
 
-	decode_thread = g_thread_self();
 	pback->set_pb_ready(pback);
 
 	play_file(pback);
@@ -219,11 +217,7 @@ static void acmx_play_file(InputPlayback *pback)
 
 static void acmx_stop(InputPlayback *pback)
 {
-	if (pback->playing) {
-		pback->playing = 0;
-		g_thread_join(decode_thread);
-		decode_thread = NULL;
-	}
+	pback->playing = 0;
 }
 
 static void acmx_about(void)
