@@ -17,6 +17,18 @@ but it's main feature is very fast decoding speed.
 NEWS
 ----
 
+Version 1.1
+~~~~~~~~~~~
+
+* acmtool: play files with libao: acmtool -p FILE
+* decoder: support WAVC files, which are ACM files with additional header.
+* decoder: take mono ACM as stereo, as there are lot of badly tagged files.
+           Trust channel count on WAVC files, those seem to be correct,
+           and WAVC is mostly used for samples.
+* decoder: avoid divide-by-zero in bitrate calculation.
+* plugin-audacious: Keep up with API changes in Audacious 2.x branch.
+           It seems to be still compatible with 1.x, but I have not tested.
+
 Version 1.0
 ~~~~~~~~~~~
 
@@ -74,7 +86,6 @@ By default the plugins are installed into player's main plugin directory.
 To specify some other location, use following arguments:
 
   --with-xmms-plugindir=DIR
-  --with-beep-plugindir=DIR
   --with-audacious-plugindir=DIR
   --with-gstreamer-plugindir=DIR
 
@@ -82,6 +93,7 @@ To compile Windows binaries (needs mingw32):
 
   make amp		- creates in_libacm.dll
   make exe		- creates acmtool.exe
+  make zip		- does both and zips
 
 Command line tools usage
 ------------------------
@@ -94,6 +106,7 @@ Command line tools usage
 	    acmtool -M|-S ACMFILE [ACMFILE ...]
     Commands:
       -d     decode audio into WAV files
+      -p     play audio
       -i     show info about ACM files
       -M     modify ACM header to have 1 channel
       -S     modify ACM header to have 2 channels
