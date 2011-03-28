@@ -90,7 +90,7 @@ static int load_bits(ACMStream *acm)
 		break;
 	}
 	
-	if ((err == load_buf(acm)) < 0)
+	if ((err = load_buf(acm)) < 0)
 		return err;
 	
 	while (got < 32) {
