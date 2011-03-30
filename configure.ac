@@ -78,6 +78,28 @@ dnl  AM_PATH_XMMS(1.0.0, :, AC_MSG_ERROR([*** XMMS not found ***])
   AC_SUBST([XMMS_DEST])
 fi
 
+dnl Check for XMMS2
+xmms2_plugin=no
+AC_ARG_ENABLE([xmms2],
+  [  --enable-xmms2          Compile plugin for XMMS2],
+  [xmms2_plugin=$enableval])
+if test $xmms2_plugin = yes; then
+  PKG_CHECK_MODULES([XMMS2], [glib-2.0 xmms2-plugin], ,
+		    [AC_MSG_ERROR([*** XMMS2 not found ***])])
+
+  AC_MSG_CHECKING([for location of XMMS2 input plugins])
+  AC_ARG_WITH([xmms2-plugindir],
+    [  --with-xmms2-plugindir=DIR    Destination for XMMS2 plugin (autodetect)],
+    [XMMS2_DEST="$withval"])
+  test -z "$XMMS2_DEST" && \
+  XMMS2_DEST=`$PKG_CONFIG --variable=libdir xmms2-plugin`/xmms2
+  AC_MSG_RESULT([$XMMS2_DEST])
+
+  AC_SUBST([XMMS2_CFLAGS])
+  AC_SUBST([XMMS2_LIBS])
+  AC_SUBST([XMMS2_DEST])
+fi
+
 dnl Check for audacious
 audacious_plugin=no
 AC_ARG_ENABLE([audacious],
@@ -142,6 +164,7 @@ if test "$have_ao" = "yes"; then
 fi
 
 AM_CONDITIONAL(MAKE_XMMS_PLUGIN, test "$xmms_plugin" = "yes")
+AM_CONDITIONAL(MAKE_XMMS2_PLUGIN, test "$xmms2_plugin" = "yes")
 AM_CONDITIONAL(MAKE_AUDACIOUS_PLUGIN, test "$audacious_plugin" = "yes")
 AM_CONDITIONAL(MAKE_GST10_PLUGIN, test "$gst10_plugin" = "yes")
 AM_CONDITIONAL(USE_LIBAO, test "$have_ao" = "yes")
@@ -155,6 +178,7 @@ echo "Audio output:         $have_ao"
 echo ""
 echo "Plugins:"
 echo "  XMMS:               $xmms_plugin"
+echo "  XMMS2:              $xmms2_plugin"
 echo "  Audacious:          $audacious_plugin"
 echo "  Gstreamer 0.10:     $gst10_plugin"
 echo ""
