@@ -1,7 +1,7 @@
 /*
  * libacm plugin for Audacious
  *
- * Copyright (C) 2004-2008  Marko Kreen
+ * Copyright (C) 2004-2011  Marko Kreen
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,25 +22,13 @@
 #include "config.h"
 #endif
 
-#include <sys/stat.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-
-#include <pthread.h>
-#include <glib.h>
-#include <gtk/gtk.h>
+#define GDK_DISABLE_DEPRECATED
+#define GTK_DISABLE_DEPRECATED
 
 #include <audacious/plugin.h>
-#include <audacious/util.h>
 
 #include "libacm.h"
 
-#define acm_debug(fmt, args...)  do { \
-	if (0) { \
-	char buf[256]; snprintf(buf, sizeof(buf), fmt, ## args); \
-	printf("%s(%d): %s\n", __func__, __LINE__, buf); \
-} } while (0)
 
 static int acmx_seek_to = -1;
 
@@ -88,22 +76,22 @@ static Tuple *acmx_get_song_tuple(const gchar * filename)
 	if ((err = acmx_open_vfs(&acm, filename)) < 0)
 		return NULL;
 
-	tup = aud_tuple_new_from_filename(filename);
+	tup = tuple_new_from_filename(filename);
 
 	title = get_title(filename);
-	aud_tuple_associate_string(tup, FIELD_TITLE, NULL, title);
+	tuple_associate_string(tup, FIELD_TITLE, NULL, title);
 	g_free(title);
 
 	info = acm_info(acm);
 	snprintf(buf, sizeof(buf), "acm-level=%d acm-subblocks=%d",
 		 info->acm_level, info->acm_rows);
-	aud_tuple_associate_string(tup, FIELD_COMMENT, NULL, buf);
+	tuple_associate_string(tup, FIELD_COMMENT, NULL, buf);
 
-	aud_tuple_associate_int(tup, FIELD_LENGTH, NULL, acm_time_total(acm));
-	aud_tuple_associate_int(tup, FIELD_BITRATE, NULL, acm_bitrate(acm) / 1024);
-	aud_tuple_associate_string(tup, FIELD_CODEC, NULL, "InterPlay ACM");
-	aud_tuple_associate_string(tup, FIELD_MIMETYPE, NULL, "application/acm");
-	aud_tuple_associate_string(tup, FIELD_QUALITY, NULL, "lossy");
+	tuple_associate_int(tup, FIELD_LENGTH, NULL, acm_time_total(acm));
+	tuple_associate_int(tup, FIELD_BITRATE, NULL, acm_bitrate(acm) / 1024);
+	tuple_associate_string(tup, FIELD_CODEC, NULL, "InterPlay ACM");
+	tuple_associate_string(tup, FIELD_MIMETYPE, NULL, "application/acm");
+	tuple_associate_string(tup, FIELD_QUALITY, NULL, "lossy");
 	
 	acm_close(acm);
 	return tup;
@@ -220,34 +208,15 @@ static void acmx_stop(InputPlayback *pback)
 	pback->playing = 0;
 }
 
-static void acmx_about(void)
-{
-	static GtkWidget *about_window = NULL;
-	const char *msg;
-
-	if (about_window) {
-		gtk_window_present(GTK_WINDOW(about_window));
-		return;
-	}
-
-	msg = "InterPlay ACM Audio Plugin for Audacious\n\n"
-		"libacm " LIBACM_VERSION "\n\n"
-		"Homepage: http://libacm.berlios.de/\n\n";
-	about_window = audacious_info_dialog("About", msg, "Ok", FALSE, NULL, NULL);
-	g_signal_connect(G_OBJECT(about_window), "destroy",
-			G_CALLBACK(gtk_widget_destroyed), &about_window);
-}
-
 /*
  * Plugin info.
  */
 
-static gchar *acmx_fmts[] = { "acm", NULL };
+static const gchar * const acmx_fmts[] = { "acm", NULL };
 
 static InputPlugin acmx_plugin = {
 	.description = "InterPlay ACM Audio Plugin",
 
-	.about = acmx_about,
 	.is_our_file = acmx_is_our_file,
 	.play_file = acmx_play_file,
 	.stop = acmx_stop,
@@ -269,26 +238,26 @@ SIMPLE_INPUT_PLUGIN(libacm, acmx_plugin_list);
 static int acmx_vfs_read(void *dst, int size, int n, void *arg)
 {
 	VFSFile *f = arg;
-	return aud_vfs_fread(dst, size, n, f);
+	return vfs_fread(dst, size, n, f);
 }
 
 static int acmx_vfs_seek(void *arg, int offset, int whence)
 {
 	VFSFile *f = arg;
-	return aud_vfs_fseek(f, offset, whence);
+	return vfs_fseek(f, offset, whence);
 }
 
 static int acmx_vfs_close(void *arg)
 {
 	VFSFile *f = arg;
-	aud_vfs_fclose(f);
+	vfs_fclose(f);
 	return 0;
 }
 
 static int acmx_vfs_get_length(void *arg)
 {
 	VFSFile *f = arg;
-	return aud_vfs_fsize(f);
+	return vfs_fsize(f);
 }
 
 static const acm_io_callbacks acmx_vfs_cb = {
@@ -303,13 +272,13 @@ static int acmx_open_vfs(ACMStream **acm_p, const gchar *url)
 	VFSFile *stream;
 	int res;
 
-	stream = aud_vfs_fopen(url, "r");
+	stream = vfs_fopen(url, "r");
 	if (stream == NULL)
 		return ACM_ERR_OPEN;
 
 	res = acm_open_decoder(acm_p, stream, acmx_vfs_cb, 0);
 	if (res < 0)
-		aud_vfs_fclose(stream);
+		vfs_fclose(stream);
 	return res;
 }
 
