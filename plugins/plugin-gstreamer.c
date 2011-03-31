@@ -182,8 +182,12 @@ static int acmdec_pull_read(void *dst, int size, int n, void *arg)
 	void *data;
 
 	flow = gst_pad_pull_range(acm->sinkpad, acm->fileofs, need_bytes, &buf);
-	if (flow != GST_FLOW_OK)
+	if (flow != GST_FLOW_OK) {
+		if (flow == GST_FLOW_UNEXPECTED)
+			return 0;
+		GST_ERROR_OBJECT(acm, "random flow from source: %d", flow);
 		return -1;
+	}
 
 	data = GST_BUFFER_DATA(buf);
 	got = GST_BUFFER_SIZE(buf);
@@ -585,7 +589,9 @@ static GstFlowReturn acmdec_src_get_range(GstPad *srcpad, guint64 offset, guint 
 	pcmpos = acm_pcm_tell(acm->ctx);
 	got = acm_read_loop(acm->ctx, GST_BUFFER_DATA(*buf), size, ACM_NATIVE_BE, 2, 1);
 	if (got < 0) {
-		flow = GST_FLOW_ERROR;
+		GST_ERROR_OBJECT(acm, "acm_read_loop: %s", acm_strerror(got));
+		/* tag it still as EOS */
+		flow = GST_FLOW_UNEXPECTED;
 		goto error;
 	} else if (got == 0) {
 		/* EOS */
