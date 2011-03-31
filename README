@@ -20,8 +20,12 @@ NEWS
 Version 1.2
 ~~~~~~~~~~~
 
-* plugin-xmms2: New plugin for XMMS2
 * decoder: Fix error handling in load_bits()   (Brian "Moses" Hall)
+
+* plugin-xmms2: New plugin for XMMS2
+* plugin-audacious: Support Audacious up to 2.4
+* plugin-gstreamer: Fix EOS handling
+* plugin-xmms: Drop it.  XMMS is obsolete.
 
 Version 1.1
 ~~~~~~~~~~~
@@ -84,7 +88,6 @@ Installation
 
 By default no plugins are compiled.  You must explicitly enable them:
 
-  --enable-xmms			Enable plugin for XMMS
   --enable-xmms2		Enable plugin for XMMS2
   --enable-audacious		Enable plugin for Audacious
   --enable-gstreamer		Enable plugin for Gstreamer 0.10
@@ -92,7 +95,6 @@ By default no plugins are compiled.  You must explicitly enable them:
 By default the plugins are installed into player's main plugin directory.
 To specify some other location, use following arguments:
 
-  --with-xmms-plugindir=DIR
   --with-xmms2-plugindir=DIR
   --with-audacious-plugindir=DIR
   --with-gstreamer-plugindir=DIR
@@ -143,7 +145,6 @@ Status
 
 * Decoder: stable
 * WinAmp plugin: stable
-* XMMS plugin: stable
 * XMMS2 plugin: stable
 * Audacity plugin: stable
 * GStreamer 0.10 plugin: stable
