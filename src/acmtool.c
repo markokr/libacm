@@ -40,12 +40,16 @@ static void show_header(const char *fn, ACMStream *acm)
 {
 	int kbps;
 	const ACMInfo *inf;
+	unsigned m, s, tmp;
 	if (cf_quiet)
 		return;
 	inf = acm_info(acm);
 	kbps = acm_bitrate(acm) / 1000;
-	printf("%s: Samples:%d Chans:%d(%d) Freq:%d A1:0x%02x A2:0x%04x kbps:%d\n",
-			fn, acm_pcm_total(acm), acm_channels(acm), acm->info.acm_channels,
+	tmp = (acm_time_total(acm) + 999) / 1000;
+	s = tmp % 60;
+	m = tmp / 60;
+	printf("%s: Length:%2d:%02d Chans:%d(%d) Freq:%d A:%d/%d kbps:%d\n",
+			fn, m, s, acm_channels(acm), acm->info.acm_channels,
 			acm_rate(acm), inf->acm_level, inf->acm_rows, kbps);
 }
 
