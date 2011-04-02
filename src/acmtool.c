@@ -45,7 +45,7 @@ static void show_header(const char *fn, ACMStream *acm)
 		return;
 	inf = acm_info(acm);
 	kbps = acm_bitrate(acm) / 1000;
-	tmp = (acm_time_total(acm) + 999) / 1000;
+	tmp = acm_time_total(acm) / 1000;
 	s = tmp % 60;
 	m = tmp / 60;
 	printf("%s: Length:%2d:%02d Chans:%d(%d) Freq:%d A:%d/%d kbps:%d\n",
