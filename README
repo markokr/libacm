@@ -21,10 +21,11 @@ Version 1.2
 ~~~~~~~~~~~
 
 * decoder: Fix error handling in load_bits()   (Brian "Moses" Hall)
+* acmtool: Show time instead number of samples.
 
 * plugin-xmms2: New plugin for XMMS2
 * plugin-audacious: Support Audacious up to 2.4
-* plugin-gstreamer: Fix EOS handling
+* plugin-gstreamer: Fix End-Of-Stream handling
 * plugin-xmms: Drop it.  XMMS is obsolete.
 
 Version 1.1
