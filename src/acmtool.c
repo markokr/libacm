@@ -108,6 +108,8 @@ static void play_file(const char *fn)
 		return;
 	}
 	show_header(fn, acm);
+
+	memset(&fmt, 0, sizeof fmt);
 	fmt.bits = 16;
 	fmt.rate = acm_rate(acm);
 	fmt.channels = acm_channels(acm);
