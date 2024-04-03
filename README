@@ -5,9 +5,7 @@ Intro
 -----
 
 Decoder library for InterPlay ACM audio files.
-
-Includes command line tool and plugins for Winamp, Audacious, XMMS2
-and GStreamer 0.10.
+Includes command line tool.
 
 The format was used for games Fallout, Fallout 2 and Baldur's Gate series.
 It is less efficient than the more advanced MP3, Vorbis or AAC algorithms,
@@ -16,6 +14,18 @@ but it's main feature is very fast decoding speed.
 
 NEWS
 ----
+
+FFmpeg
+~~~~~~
+
+* This decoder was merged into FFmpeg 3.0.  Now ACM files can be played
+  via ffmpeg commands or using libavcodec.
+
+Version 1.3
+~~~~~~~~~~~
+
+* acmtool: Fix crash with libao 1.x
+* plugins: drop, they do not work with any modern player.
 
 Version 1.2
 ~~~~~~~~~~~
@@ -87,32 +97,6 @@ Installation
   make
   make install
 
-By default no plugins are compiled.  You must explicitly enable them:
-
-  --enable-xmms2		Enable plugin for XMMS2
-  --enable-audacious		Enable plugin for Audacious
-  --enable-gstreamer		Enable plugin for Gstreamer 0.10
-
-By default the plugins are installed into player's main plugin directory.
-To specify some other location, use following arguments:
-
-  --with-xmms2-plugindir=DIR
-  --with-audacious-plugindir=DIR
-  --with-gstreamer-plugindir=DIR
-
-Local per-user plugin paths for GStreamer and Audacious:
-
-  --with-audacious-plugindir=$HOME/.local/share/audacious/Plugins
-  --with-gstreamer-plugindir=$HOME/.gstreamer-0.10/plugins
-
-XMMS2 does not support per-user plugin directories.
-
-To compile Windows binaries (needs mingw32):
-
-  make amp		- creates in_libacm.dll
-  make exe		- creates acmtool.exe
-  make zip		- does both and zips
-
 Command line tools usage
 ------------------------
 
@@ -139,17 +123,6 @@ Command line tools usage
 The mono/stereo options are necessary because for some ACM files
 the number of channels in header in wrong.  Usually those are
 game samples, which contain mono audio but are tagger as stereo.
-
-
-Status
-------
-
-* Decoder: stable
-* WinAmp plugin: stable
-* XMMS2 plugin: stable
-* Audacity plugin: stable
-* GStreamer 0.10 plugin: stable
-* Encoder: when I have more time
 
 
 Credits

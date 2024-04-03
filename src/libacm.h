@@ -19,7 +19,7 @@
 #ifndef __LIBACM_H
 #define __LIBACM_H
 
-#define LIBACM_VERSION "1.1"
+#define LIBACM_VERSION "1.3"
 
 #define ACM_ID		0x032897
 #define ACM_WORD	2

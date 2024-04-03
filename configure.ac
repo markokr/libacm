@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.71])
 
-AC_INIT([libacm],[1.2],[markokr@gmail.com])
+AC_INIT([libacm],[1.3],[markokr@gmail.com])
 AC_CONFIG_SRCDIR([src/libacm.h])
 AM_INIT_AUTOMAKE
 AC_CONFIG_HEADERS([config.h])
