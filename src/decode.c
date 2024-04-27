@@ -169,32 +169,6 @@ static const int map_1bit[] = { -1, +1 };
 static const int map_2bit_near[] = { -2, -1, +1, +2 };
 static const int map_2bit_far[] = { -3, -2, +2, +3 };
 static const int map_3bit[] = { -4, -3, -2, -1, +1, +2, +3, +4 };
-static int mul_3x3[3*3*3];
-static int mul_3x5[5*5*5]; 
-static int mul_2x11[11*11];
-static int tables_generated;
-
-static void generate_tables(void)
-{
-	int x1, x2, x3;
-	if (tables_generated)
-		return;
-	for (x3 = 0; x3 < 3; x3++)
-		for (x2 = 0; x2 < 3; x2++)
-			for (x1 = 0; x1 < 3; x1++)
-				mul_3x3[x1 + x2*3 + x3*3*3] = 
-					x1 + (x2 << 4) + (x3 << 8);
-	for (x3 = 0; x3 < 5; x3++)
-		for (x2 = 0; x2 < 5; x2++)
-			for (x1 = 0; x1 < 5; x1++)
-				mul_3x5[x1 + x2*5 + x3*5*5] = 
-					x1 + (x2 << 4) + (x3 << 8);
-	for (x2 = 0; x2 < 11; x2++)
-		for (x1 = 0; x1 < 11; x1++)
-			mul_2x11[x1 + x2*11] = x1 + (x2 << 4);
-
-	tables_generated = 1;
-}
 
 /* IOW: (r * acm->subblock_len) + c */
 #define set_pos(acm, r, c, idx) do { \
@@ -431,17 +405,18 @@ static int f_k44(ACMStream *acm, unsigned ind, unsigned col)
 static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 {
 	unsigned i, b;
-	int n1, n2, n3;
+	int n1, n2, n3, tmp;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 3) + (x3 * 9) */
 		GET_BITS(b, acm, 5);
 		if (b >= 3 * 3 * 3)
 			return ACM_ERR_CORRUPT;
-		
-		n1 =  (mul_3x3[b] & 0x0F) - 1;
-		n2 = ((mul_3x3[b] >> 4) & 0x0F) - 1;
-		n3 = ((mul_3x3[b] >> 8) & 0x0F) - 1;
-		
+
+		n1 = b % 3 - 1;
+		tmp = b / 3;
+		n2 = tmp % 3 - 1;
+		n3 = tmp / 3 - 1;
+
 		set_pos(acm, i++, col, n1);
 		if (i >= acm->info.acm_rows)
 			break;
@@ -456,17 +431,18 @@ static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 static int f_t27(ACMStream *acm, unsigned ind, unsigned col)
 {
 	unsigned i, b;
-	int n1, n2, n3;
+	int n1, n2, n3, tmp;
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 5) + (x3 * 25) */
 		GET_BITS(b, acm, 7);
 		if (b >= 5 * 5 * 5)
 			return ACM_ERR_CORRUPT;
 
-		n1 =  (mul_3x5[b] & 0x0F) - 2;
-		n2 = ((mul_3x5[b] >> 4) & 0x0F) - 2;
-		n3 = ((mul_3x5[b] >> 8) & 0x0F) - 2;
-		
+		n1 = b % 5 - 2;
+		tmp = b / 5;
+		n2 = tmp % 5 - 2;
+		n3 = tmp / 5 - 2;
+
 		set_pos(acm, i++, col, n1);
 		if (i >= acm->info.acm_rows)
 			break;
@@ -487,10 +463,10 @@ static int f_t37(ACMStream *acm, unsigned ind, unsigned col)
 		GET_BITS(b, acm, 7);
 		if (b >= 11 * 11)
 			return ACM_ERR_CORRUPT;
-		
-		n1 =  (mul_2x11[b] & 0x0F) - 5;
-		n2 = ((mul_2x11[b] >> 4) & 0x0F) - 5;
-		
+
+		n1 = b % 11 - 5;
+		n2 = b / 11 - 5;
+
 		set_pos(acm, i++, col, n1);
 		if (i >= acm->info.acm_rows)
 			break;
@@ -834,8 +810,6 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int for
 	acm->midbuf = acm->ampbuf + 0x8000;
 
 	memset(acm->wrapbuf, 0, acm->wrapbuf_len * sizeof(int));
-
-	generate_tables();
 
 	*res = acm;
 	return ACM_OK;
