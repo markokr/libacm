@@ -435,6 +435,8 @@ static int f_t15(ACMStream *acm, unsigned ind, unsigned col)
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 3) + (x3 * 9) */
 		GET_BITS(b, acm, 5);
+		if (b >= 3 * 3 * 3)
+			return ACM_ERR_CORRUPT;
 		
 		n1 =  (mul_3x3[b] & 0x0F) - 1;
 		n2 = ((mul_3x3[b] >> 4) & 0x0F) - 1;
@@ -458,6 +460,8 @@ static int f_t27(ACMStream *acm, unsigned ind, unsigned col)
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 5) + (x3 * 25) */
 		GET_BITS(b, acm, 7);
+		if (b >= 5 * 5 * 5)
+			return ACM_ERR_CORRUPT;
 
 		n1 =  (mul_3x5[b] & 0x0F) - 2;
 		n2 = ((mul_3x5[b] >> 4) & 0x0F) - 2;
@@ -481,6 +485,8 @@ static int f_t37(ACMStream *acm, unsigned ind, unsigned col)
 	for (i = 0; i < acm->info.acm_rows; i++) {
 		/* b = (x1) + (x2 * 11) */
 		GET_BITS(b, acm, 7);
+		if (b >= 11 * 11)
+			return ACM_ERR_CORRUPT;
 		
 		n1 =  (mul_2x11[b] & 0x0F) - 5;
 		n2 = ((mul_2x11[b] >> 4) & 0x0F) - 5;
@@ -526,7 +532,8 @@ static int fill_block(ACMStream *acm)
 static void juggle(int *wrap_p, int *block_p, unsigned sub_len, unsigned sub_count)
 {
 	unsigned int i, j;
-	int *p, r0, r1, r2, r3;
+	int *p;
+	unsigned int r0, r1, r2, r3;
 	for (i = 0; i < sub_len; i++) {
 		p = block_p;
 		r0 = wrap_p[0];
@@ -612,7 +619,7 @@ static int decode_block(ACMStream *acm)
 		x += val;
 	}
 	for (i = 1, x = -val; i <= count; i++) {
-		acm->midbuf[-i] = x;
+		acm->midbuf[-i] = (unsigned)x;
 		x -= val;
 	}
 
