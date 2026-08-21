@@ -804,9 +804,16 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int for
 	acm->block_len = acm->info.acm_rows * acm->info.acm_cols;
 
 	/* allocate */
+	err = ACM_ERR_OTHER;
 	acm->block = malloc(acm->block_len * sizeof(int));
+	if (!acm->block)
+		goto err_out;
 	acm->wrapbuf = malloc(acm->wrapbuf_len * sizeof(int));
+	if (!acm->wrapbuf)
+		goto err_out;
 	acm->ampbuf = malloc(0x10000 * sizeof(int));
+	if (!acm->ampbuf)
+		goto err_out;
 	acm->midbuf = acm->ampbuf + 0x8000;
 
 	memset(acm->wrapbuf, 0, acm->wrapbuf_len * sizeof(int));
