@@ -26,7 +26,7 @@ Version 1.4
 
 * decode: Backport ffmpeg fixes
 * decode: Remove precalculated tables
-* decode: Use force_chans = 0 for "always trust header in acm_open_decoder
+* decode: Use force_chans = 0 for "always trust header" in acm_open_decoder
 * decode: Make libacm.h usable from C++
 * decode: Document parts of API in libacm.h
 * decode: Check for alloc failure
