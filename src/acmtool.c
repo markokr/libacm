@@ -195,7 +195,7 @@ static int write_wav_header(FILE *f, ACMStream *acm)
 	unsigned char hdr[50], *p = hdr;
 	int res;
 	unsigned datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
-	
+
 	int code = 1;
 	unsigned n_channels = acm_channels(acm);
 	unsigned srate = acm_rate(acm);
@@ -204,9 +204,9 @@ static int write_wav_header(FILE *f, ACMStream *acm)
 	unsigned block_align = significant_bits * n_channels / 8;
 	unsigned hdrlen = 16;
 	unsigned wavlen = 4 + 8 + hdrlen + 8 + datalen;
-	
+
 	memset(hdr, 0, sizeof(hdr));
-	
+
 	put_data(p, "RIFF", 4);
 	put_dword(p, wavlen);
 	put_data(p, "WAVEfmt ", 8);
@@ -217,7 +217,7 @@ static int write_wav_header(FILE *f, ACMStream *acm)
 	put_dword(p, avg_bps);
 	put_word(p, block_align);
 	put_word(p, significant_bits);
-	
+
 	put_data(p, "data", 4);
 	put_dword(p, datalen);
 
@@ -270,7 +270,7 @@ static void decode_file(const char *fn, const char *fn2)
 	buf = malloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
-	
+
 	while (bytes_done < total_bytes) {
 		res = acm_read_loop(acm, buf, buflen/2, 0,2,1);
 		if (res == 0)
@@ -488,14 +488,14 @@ int main(int argc, char *argv[])
 			show_info(argv[i]);
 		return 0;
 	}
-	
+
 	/* channel changing */
 	if (cmd_chg_channels) {
 		for (i = optind; i < argc; i++)
 			set_channels(argv[i], cf_set_chans);
 		return 0;
 	}
-	
+
 	/* regular converting */
 	if (optind == argc)
 		usage(1);

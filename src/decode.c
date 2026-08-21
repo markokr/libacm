@@ -1,6 +1,6 @@
-/*  
+/*
  * ACM decoder.
- *  
+ *
  * Copyright (c) 2004-2010, Marko Kreen
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -90,10 +90,10 @@ static int load_bits(ACMStream *acm)
 		got = 24;
 		break;
 	}
-	
+
 	if ((err = load_buf(acm)) < 0)
 		return err;
-	
+
 	while (got < 32) {
 		if (acm->buf_size - acm->buf_pos == 0)
 			break;
@@ -128,7 +128,7 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 		b_data = acm->bit_data;
 		b_avail = acm->bit_avail;
 	}
-	
+
 	data |= (b_data & ((1 << bits) - 1)) << got;
 	acm->bit_data = b_data >> bits;
 	acm->bit_avail = b_avail - bits;
@@ -184,7 +184,7 @@ static int f_zero(ACMStream *acm, unsigned ind, unsigned col)
 	unsigned i;
 	for (i = 0; i < acm->info.acm_rows; i++)
 		set_pos(acm, i, col, 0);
-	
+
 	return 1;
 }
 
@@ -242,7 +242,7 @@ static int f_k12(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		/* 1, ? */
 		GET_BITS(b, acm, 1);
 		set_pos(acm, i, col, map_1bit[b]);
@@ -262,14 +262,14 @@ static int f_k24(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 1, 0 */
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		/* 1, 1, ?, ? */
 		GET_BITS(b, acm, 2);
 		set_pos(acm, i, col, map_2bit_near[b]);
@@ -308,14 +308,14 @@ static int f_k35(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 1, 0 */
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 1, 1, 0, ? */
@@ -323,7 +323,7 @@ static int f_k35(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, map_1bit[b]);
 			continue;
 		}
-		
+
 		/* 1, 1, 1, ?, ? */
 		GET_BITS(b, acm, 2);
 		set_pos(acm, i, col, map_2bit_far[b]);
@@ -341,7 +341,7 @@ static int f_k34(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 1, 0, ? */
@@ -349,7 +349,7 @@ static int f_k34(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, map_1bit[b]);
 			continue;
 		}
-		
+
 		/* 1, 1, ?, ? */
 		GET_BITS(b, acm, 2);
 		set_pos(acm, i, col, map_2bit_far[b]);
@@ -369,15 +369,15 @@ static int f_k45(ACMStream *acm, unsigned ind, unsigned col)
 				break;
 			set_pos(acm, i, col, 0);
 			continue;
-		} 
-		
+		}
+
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 1, 0 */
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		/* 1, 1, ?, ?, ? */
 		GET_BITS(b, acm, 3);
 		set_pos(acm, i, col, map_3bit[b]);
@@ -395,7 +395,7 @@ static int f_k44(ACMStream *acm, unsigned ind, unsigned col)
 			set_pos(acm, i, col, 0);
 			continue;
 		}
-		
+
 		/* 1, ?, ?, ? */
 		GET_BITS(b, acm, 3);
 		set_pos(acm, i, col, map_3bit[b]);
@@ -530,7 +530,7 @@ static void juggle_block(ACMStream *acm)
 {
 	unsigned sub_count, sub_len, todo_count, step_subcount, i;
 	int *wrap_p, *block_p, *p;
-	
+
 	/* juggle only if subblock_len > 1 */
 	if (acm->info.acm_level == 0)
 		return;
@@ -555,15 +555,15 @@ static void juggle_block(ACMStream *acm)
 
 		sub_len = acm->info.acm_cols / 2;
 		sub_count *= 2;
-		
+
 		juggle(wrap_p, block_p, sub_len, sub_count);
 		wrap_p += sub_len*2;
-		
+
 		for (i = 0, p = block_p; i < sub_count; i++) {
 			p[0]++;
 			p += sub_len;
 		}
-		
+
 		while (sub_len > 1) {
 			sub_len /= 2;
 			sub_count *= 2;
@@ -744,7 +744,7 @@ static int read_header(ACMStream *acm)
 	GET_BITS(acm->info.rate, acm, 16);
 	if (acm->info.rate < 4096)
 		return ACM_ERR_NOT_ACM;
-	
+
 	GET_BITS(acm->info.acm_level, acm, 4);
 	GET_BITS(acm->info.acm_rows, acm, 12);
 	if (!acm->info.acm_rows)
@@ -760,7 +760,7 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int for
 {
 	int err = ACM_ERR_OTHER;
 	ACMStream *acm;
-	
+
 	acm = malloc(sizeof(*acm));
 	if (!acm)
 		return err;
@@ -774,10 +774,10 @@ int acm_open_decoder(ACMStream **res, void *arg, acm_io_callbacks io_cb, int for
 	} else {
 		acm->data_len = 0;
 	}
-	
+
 	acm->buf_max = ACM_BUFLEN;
 	acm->buf = malloc(acm->buf_max);
-	if (!acm->buf) 
+	if (!acm->buf)
 		goto err_out;
 
 	/* read header data */

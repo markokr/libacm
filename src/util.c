@@ -60,13 +60,13 @@ static int _read_file(void *ptr, int size, int n, void *arg)
 	FILE *f = (FILE *)arg;
 	return fread(ptr, size, n, f);
 }
-                                                                                
+
 static int _close_file(void *arg)
 {
 	FILE *f = (FILE *)arg;
 	return fclose(f);
 }
-                                                                                
+
 static int _seek_file(void *arg, int offset, int whence)
 {
 	FILE *f = (FILE *)arg;
@@ -98,7 +98,7 @@ int acm_open_file(ACMStream **res, const char *filename, int force_chans)
 	ACMStream *acm;
 
 	if ((f = fopen(filename, "rb")) == NULL)
-       		return ACM_ERR_OPEN;
+		return ACM_ERR_OPEN;
 
 	memset(&io, 0, sizeof(io));
 	io.read_func = _read_file;
@@ -226,10 +226,10 @@ int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 
 		if (acm->io.seek_func(acm->io_arg, start_ofs, SEEK_SET) < 0)
 			return ACM_ERR_NOT_SEEKABLE;
-	
+
 		acm->file_eof = 0;
 		acm->buf_pos = 0;
- 		acm->buf_size = 0;
+		acm->buf_size = 0;
 		acm->bit_avail = 0;
 		acm->bit_data = 0;
 
