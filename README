@@ -21,6 +21,18 @@ FFmpeg
 * This decoder was merged into FFmpeg 3.0.  Now ACM files can be played
   via ffmpeg commands or using libavcodec.
 
+Version 1.4
+~~~~~~~~~~~
+
+* decode: Backport ffmpeg fixes
+* decode: Remove precalculated tables
+* decode: Use force_chans = 0 for "always trust header in acm_open_decoder
+* decode: Make libacm.h usable from C++
+* decode: Document parts of API in libacm.h
+* decode: Check for alloc failure
+* decode: Avoid invalid alloc sizes
+* autogen: pass on failures from autoreconf
+
 Version 1.3
 ~~~~~~~~~~~
 
