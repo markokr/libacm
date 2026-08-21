@@ -1,4 +1,6 @@
-#! /bin/bash -e
+#! /bin/bash
+
+set -e
 
 unset LANG LC_ALL LC_COLLATE
 export LANG LC_ALL LC_COLLATE
