@@ -171,12 +171,13 @@ static void play_file(const char *fn)
  * WAV writing
  */
 
-static char * makefn(const char *fn, const char *ext)
+static char *makefn(const char *fn, const char *ext)
 {
-	char *dstfn, *p;
+	char *dstfn, *p, *slash;
 	dstfn = xmalloc(strlen(fn) + strlen(ext) + 2);
 	strcpy(dstfn, fn);
-	p = strrchr(dstfn, '.');
+	slash = strrchr(dstfn, '/');
+	p = strrchr(slash ? slash : dstfn, '.');
 	if (p != NULL)
 		*p = 0;
 	strcat(dstfn, ext);
