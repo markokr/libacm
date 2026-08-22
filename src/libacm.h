@@ -28,15 +28,15 @@ extern "C" {
 #define ACM_ID 0x032897
 #define ACM_WORD 2
 
-#define ACM_OK 0
-#define ACM_ERR_OTHER -1
-#define ACM_ERR_OPEN -2
-#define ACM_ERR_NOT_ACM -3
-#define ACM_ERR_READ_ERR -4
-#define ACM_ERR_BADFMT -5
-#define ACM_ERR_CORRUPT -6
-#define ACM_ERR_UNEXPECTED_EOF -7
-#define ACM_ERR_NOT_SEEKABLE -8
+#define ACM_OK (0)
+#define ACM_ERR_OTHER (-1)
+#define ACM_ERR_OPEN (-2)
+#define ACM_ERR_NOT_ACM (-3)
+#define ACM_ERR_READ_ERR (-4)
+#define ACM_ERR_BADFMT (-5)
+#define ACM_ERR_CORRUPT (-6)
+#define ACM_ERR_UNEXPECTED_EOF (-7)
+#define ACM_ERR_NOT_SEEKABLE (-8)
 
 typedef struct ACMInfo {
 	unsigned channels; /* number of sound channels (1: mono, 2: stereo */

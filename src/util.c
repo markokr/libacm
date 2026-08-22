@@ -31,16 +31,28 @@
 /*
  * error strings
  */
-static const char *_errlist[] = { "No error",	     "ACM error",      "Cannot open file",
-				  "Not an ACM file", "Read error",     "Bad format",
-				  "Corrupt file",    "Unexpected EOF", "Stream not seekable" };
+
+/* clang-format off */
+static const char *_errlist[] = {
+	[-ACM_OK] = "No error",
+	[-ACM_ERR_OTHER] = "ACM error",
+	[-ACM_ERR_OPEN] = "Cannot open file",
+	[-ACM_ERR_NOT_ACM] = "Not an ACM file",
+	[-ACM_ERR_READ_ERR] = "Read error",
+	[-ACM_ERR_BADFMT] = "Bad format",
+	[-ACM_ERR_CORRUPT] = "Corrupt file",
+	[-ACM_ERR_UNEXPECTED_EOF] = "Unexpected EOF",
+	[-ACM_ERR_NOT_SEEKABLE] = "Stream not seekable",
+};
+/* clang-format on */
 
 const char *acm_strerror(int err)
 {
 	int nerr = sizeof(_errlist) / sizeof(char *);
-	if ((-err) < 0 || (-err) >= nerr)
+	int idx = -err;
+	if (idx < 0 || idx >= nerr)
 		return "Unknown error";
-	return _errlist[-err];
+	return _errlist[idx];
 }
 
 /*
