@@ -333,24 +333,24 @@ static void set_channels(const char *fn, int n_chan)
 	res = fread(hdr, 1, 14, f);
 	if (res != 14) {
 		fprintf(stderr, "%s: cannot read header\n", fn);
-		return;
+		goto error;
 	}
 
 	if (memcmp(hdr, acm_id, 4)) {
 		fprintf(stderr, "%s: not an ACM file\n", fn);
-		return;
+		goto error;
 	}
 
 	oldnum = (hdr[9] << 8) + hdr[8];
 	if (oldnum != 1 && oldnum != 2) {
 		fprintf(stderr, "%s: suspicios number of channels: %d\n",
 				fn, oldnum);
-		return;
+		goto error;
 	}
 
 	if (fseek(f, 0, SEEK_SET)) {
 		perror(fn);
-		return;
+		goto error;
 	}
 
 	hdr[8] = n_chan;
@@ -358,6 +358,7 @@ static void set_channels(const char *fn, int n_chan)
 	if (res != 14) {
 		perror(fn);
 	}
+ error:
 	fclose(f);
 }
 
