@@ -236,7 +236,7 @@ int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 		acm->stream_pos = 0;
 		acm->block_pos = 0;
 		acm->block_ready = 0;
-		acm->buf_start_ofs = ACM_HEADER_LEN;
+		acm->buf_start_ofs = start_ofs;
 
 		memset(acm->wrapbuf, 0, acm->wrapbuf_len * sizeof(int));
 	}
