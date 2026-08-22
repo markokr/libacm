@@ -1,10 +1,11 @@
 
 bin_PROGRAMS = acmtool
-noinst_LTLIBRARIES = libacm.la
+lib_LTLIBRARIES = libacm.la
 
-noinst_HEADERS = libacm.h
+include_HEADERS = libacm.h
 
 libacm_la_SOURCES = decode.c util.c
+libacm_la_LDFLAGS = -version-info 1:0:0
 
 acmtool_SOURCES = acmtool.c
 
