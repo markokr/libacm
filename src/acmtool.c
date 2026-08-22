@@ -473,9 +473,13 @@ int main(int argc, char *argv[])
 		}
 	}
 	i = cmd_chg_channels + cmd_info + cmd_decode + cmd_play;
-	if (i < 1 || i > 1) {
+	if (i < 1) {
+		fprintf(stderr, "need command, use -h for help\n");
+		exit(1);
+	}
+	if (i > 1) {
 		fprintf(stderr, "only one command at a time please\n");
-		usage(1);
+		exit(1);
 	}
 
 	/* play file */
