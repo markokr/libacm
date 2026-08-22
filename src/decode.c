@@ -28,6 +28,7 @@
 
 #define ACM_BUFLEN	(64*1024)
 #define MAX_BLOCK_LEN	(1024*1024)
+#define MAX_SAMPLES	(1 << 30)
 
 #define ACM_EXPECTED_EOF -99
 
@@ -735,7 +736,7 @@ static int read_header(ACMStream *acm)
 	GET_BITS(acm->total_values, acm, 16);
 	GET_BITS(tmp, acm, 16);
 	acm->total_values += tmp << 16;
-	if (acm->total_values == 0)
+	if (acm->total_values == 0 || acm->total_values > MAX_SAMPLES)
 		return ACM_ERR_NOT_ACM;
 	GET_BITS(acm->info.channels, acm, 16);
 	if (acm->info.channels < 1 || acm->info.channels > 2)
