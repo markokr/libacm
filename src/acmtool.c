@@ -245,7 +245,7 @@ static void decode_file(const char *fn, const char *fn2)
 	char *buf;
 	int res, res2, buflen, err;
 	FILE *fo = NULL;
-	int bytes_done = 0, total_bytes;
+	unsigned int bytes_done = 0, total_bytes;
 
 	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
