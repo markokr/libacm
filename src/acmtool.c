@@ -53,6 +53,16 @@ static void show_header(const char *fn, ACMStream *acm)
 			acm_rate(acm), inf->acm_level, inf->acm_rows, kbps);
 }
 
+static void *xmalloc(size_t len)
+{
+	void *p = malloc(len);
+	if (!p) {
+		perror("malloc");
+		exit(1);
+	}
+	return p;
+}
+
 #ifdef HAVE_AO
 
 /*
@@ -118,7 +128,7 @@ static void play_file(const char *fn)
 	dev = open_audio(&fmt);
 
 	buflen = 4*1024;
-	buf = malloc(buflen);
+	buf = xmalloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 	while (bytes_done < total_bytes) {
@@ -164,7 +174,7 @@ static void play_file(const char *fn)
 static char * makefn(const char *fn, const char *ext)
 {
 	char *dstfn, *p;
-	dstfn = malloc(strlen(fn) + strlen(ext) + 2);
+	dstfn = xmalloc(strlen(fn) + strlen(ext) + 2);
 	strcpy(dstfn, fn);
 	p = strrchr(dstfn, '.');
 	if (p != NULL)
@@ -267,7 +277,7 @@ static void decode_file(const char *fn, const char *fn2)
 		}
 	}
 	buflen = 16*1024;
-	buf = malloc(buflen);
+	buf = xmalloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 
