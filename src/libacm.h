@@ -25,27 +25,27 @@ extern "C" {
 
 #define LIBACM_VERSION "1.4"
 
-#define ACM_ID		0x032897
-#define ACM_WORD	2
+#define ACM_ID 0x032897
+#define ACM_WORD 2
 
-#define ACM_OK			 0
-#define ACM_ERR_OTHER		-1
-#define ACM_ERR_OPEN		-2
-#define ACM_ERR_NOT_ACM		-3
-#define ACM_ERR_READ_ERR	-4
-#define ACM_ERR_BADFMT		-5
-#define ACM_ERR_CORRUPT		-6
-#define ACM_ERR_UNEXPECTED_EOF	-7
-#define ACM_ERR_NOT_SEEKABLE	-8
+#define ACM_OK 0
+#define ACM_ERR_OTHER -1
+#define ACM_ERR_OPEN -2
+#define ACM_ERR_NOT_ACM -3
+#define ACM_ERR_READ_ERR -4
+#define ACM_ERR_BADFMT -5
+#define ACM_ERR_CORRUPT -6
+#define ACM_ERR_UNEXPECTED_EOF -7
+#define ACM_ERR_NOT_SEEKABLE -8
 
 typedef struct ACMInfo {
-	unsigned channels;		/* number of sound channels (1: mono, 2: stereo */
-	unsigned rate;			/* samplerate */
+	unsigned channels; /* number of sound channels (1: mono, 2: stereo */
+	unsigned rate;	   /* samplerate */
 	unsigned acm_id;
 	unsigned acm_version;
-	unsigned acm_channels;		/* channels from header (often wrong) */
+	unsigned acm_channels; /* channels from header (often wrong) */
 	unsigned acm_level;
-	unsigned acm_cols;		/* 1 << acm_level */
+	unsigned acm_cols; /* 1 << acm_level */
 	unsigned acm_rows;
 } ACMInfo;
 
@@ -70,7 +70,7 @@ typedef struct {
 
 struct ACMStream {
 	ACMInfo info;
-	unsigned total_values;		/* number of sound samples in the ACM file */
+	unsigned total_values; /* number of sound samples in the ACM file */
 
 	/* acm data stream */
 	void *io_arg;
@@ -90,13 +90,13 @@ struct ACMStream {
 	int *block;
 	int *wrapbuf;
 	int *ampbuf;
-	int *midbuf;			/* pointer into ampbuf */
+	int *midbuf; /* pointer into ampbuf */
 	/* result */
-	unsigned block_ready:1;
-	unsigned file_eof:1;
-	unsigned wavc_file:1;
-	unsigned stream_pos;			/* in words. absolute */
-	unsigned block_pos;			/* in words, relative */
+	unsigned block_ready : 1;
+	unsigned file_eof : 1;
+	unsigned wavc_file : 1;
+	unsigned stream_pos; /* in words. absolute */
+	unsigned block_pos;  /* in words, relative */
 };
 typedef struct ACMStream ACMStream;
 
@@ -131,8 +131,7 @@ int acm_open_decoder(ACMStream **res, void *io_arg, acm_io_callbacks io, int for
  *   or 0 on EOF (nothing left to read in file)
  *   or a value < 0 (ACM_ERR_*) on error
  */
-int acm_read(ACMStream *acm, void *buf, unsigned nbytes,
-		int bigendianp, int wordlen, int sgned);
+int acm_read(ACMStream *acm, void *buf, unsigned nbytes, int bigendianp, int wordlen, int sgned);
 void acm_close(ACMStream *acm);
 
 /* util.c */
@@ -163,8 +162,7 @@ unsigned acm_pcm_total(ACMStream *acm);
 unsigned acm_pcm_tell(ACMStream *acm);
 unsigned acm_time_total(ACMStream *acm);
 unsigned acm_time_tell(ACMStream *acm);
-int acm_read_loop(ACMStream *acm, void *dst, unsigned len,
-		int bigendianp, int wordlen, int sgned);
+int acm_read_loop(ACMStream *acm, void *dst, unsigned len, int bigendianp, int wordlen, int sgned);
 int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos);
 int acm_seek_time(ACMStream *acm, unsigned pos_ms);
 const char *acm_strerror(int err);
@@ -174,4 +172,3 @@ const char *acm_strerror(int err);
 #endif
 
 #endif
-

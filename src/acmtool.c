@@ -29,7 +29,7 @@
 
 #include "libacm.h"
 
-static const char * version = "acmtool - libacm version " LIBACM_VERSION;
+static const char *version = "acmtool - libacm version " LIBACM_VERSION;
 
 static int cf_raw = 0;
 static int cf_force_chans = 0;
@@ -48,9 +48,9 @@ static void show_header(const char *fn, ACMStream *acm)
 	tmp = acm_time_total(acm) / 1000;
 	s = tmp % 60;
 	m = tmp / 60;
-	printf("%s: Length:%2d:%02d Chans:%d(%d) Freq:%d A:%d/%d kbps:%d\n",
-			fn, m, s, acm_channels(acm), acm->info.acm_channels,
-			acm_rate(acm), inf->acm_level, inf->acm_rows, kbps);
+	printf("%s: Length:%2d:%02d Chans:%d(%d) Freq:%d A:%d/%d kbps:%d\n", fn, m, s,
+	       acm_channels(acm), acm->info.acm_channels, acm_rate(acm), inf->acm_level,
+	       inf->acm_rows, kbps);
 }
 
 static void *xmalloc(size_t len)
@@ -127,12 +127,12 @@ static void play_file(const char *fn)
 
 	dev = open_audio(&fmt);
 
-	buflen = 4*1024;
+	buflen = 4 * 1024;
 	buf = xmalloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 	while (bytes_done < total_bytes) {
-		res = acm_read_loop(acm, buf, buflen, 0,2,1);
+		res = acm_read_loop(acm, buf, buflen, 0, 2, 1);
 		if (res == 0)
 			break;
 		if (res > 0) {
@@ -146,8 +146,7 @@ static void play_file(const char *fn)
 
 	memset(buf, 0, buflen);
 	if (bytes_done < total_bytes)
-		fprintf(stderr, "%s: adding filler_samples: %d\n",
-				fn, total_bytes - bytes_done);
+		fprintf(stderr, "%s: adding filler_samples: %d\n", fn, total_bytes - bytes_done);
 	while (bytes_done < total_bytes) {
 		int bs;
 		if (bytes_done + buflen > total_bytes) {
@@ -184,19 +183,22 @@ static char *makefn(const char *fn, const char *ext)
 	return dstfn;
 }
 
-#define put_word(p, val) do { \
+#define put_word(p, val) \
+	do { \
 		*p++ = val & 0xFF; \
 		*p++ = (val >> 8) & 0xFF; \
 	} while (0)
 
-#define put_dword(p, val) do { \
+#define put_dword(p, val) \
+	do { \
 		*p++ = val & 0xFF; \
 		*p++ = (val >> 8) & 0xFF; \
 		*p++ = (val >> 16) & 0xFF; \
 		*p++ = (val >> 24) & 0xFF; \
 	} while (0)
 
-#define put_data(p, data, len) do { \
+#define put_data(p, data, len) \
+	do { \
 		memcpy(p, data, len); \
 		p += len; \
 	} while (0)
@@ -277,12 +279,12 @@ static void decode_file(const char *fn, const char *fn2)
 			return;
 		}
 	}
-	buflen = 16*1024;
+	buflen = 16 * 1024;
 	buf = xmalloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 	while (bytes_done < total_bytes) {
-		res = acm_read_loop(acm, buf, buflen, 0,2,1);
+		res = acm_read_loop(acm, buf, buflen, 0, 2, 1);
 		if (res == 0)
 			break;
 		if (res > 0) {
@@ -302,8 +304,7 @@ static void decode_file(const char *fn, const char *fn2)
 
 	memset(buf, 0, buflen);
 	if (bytes_done < total_bytes)
-		fprintf(stderr, "%s: adding filler_samples: %d\n",
-			fn, total_bytes - bytes_done);
+		fprintf(stderr, "%s: adding filler_samples: %d\n", fn, total_bytes - bytes_done);
 	while (bytes_done < total_bytes) {
 		int bs;
 		if (bytes_done + buflen > total_bytes) {
@@ -353,8 +354,7 @@ static void set_channels(const char *fn, int n_chan)
 
 	oldnum = (hdr[9] << 8) + hdr[8];
 	if (oldnum != 1 && oldnum != 2) {
-		fprintf(stderr, "%s: suspicious number of channels: %d\n",
-				fn, oldnum);
+		fprintf(stderr, "%s: suspicious number of channels: %d\n", fn, oldnum);
 		goto error;
 	}
 
@@ -368,7 +368,7 @@ static void set_channels(const char *fn, int n_chan)
 	if (res != 14) {
 		perror(fn);
 	}
- error:
+error:
 	fclose(f);
 }
 
@@ -529,4 +529,3 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
-

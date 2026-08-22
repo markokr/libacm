@@ -26,9 +26,9 @@
 
 #include "libacm.h"
 
-#define ACM_BUFLEN	(64*1024)
-#define MAX_BLOCK_LEN	(1024*1024)
-#define MAX_SAMPLES	(1 << 30)
+#define ACM_BUFLEN (64 * 1024)
+#define MAX_BLOCK_LEN (1024 * 1024)
+#define MAX_SAMPLES (1 << 30)
 
 #define ACM_EXPECTED_EOF -99
 
@@ -50,8 +50,7 @@ static int load_buf(ACMStream *acm)
 	acm->buf_start_ofs += acm->buf_size;
 
 	if (acm->io.read_func != NULL)
-		res = acm->io.read_func(acm->buf, 1, acm->buf_max,
-				acm->io_arg);
+		res = acm->io.read_func(acm->buf, 1, acm->buf_max, acm->io_arg);
 
 	if (res < 0)
 		return ACM_ERR_READ_ERR;
@@ -121,7 +120,7 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 		acm->buf_pos += 4;
 		b_data = p[0] + (p[1] << 8) + (p[2] << 16) + (p[3] << 24);
 		b_avail = 32;
-	} else	{
+	} else {
 		if ((err = load_bits(acm)) < 0)
 			return err;
 		if (acm->bit_avail < bits)
@@ -136,7 +135,8 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 	return data;
 }
 
-#define GET_BITS_NOERR(tmpval, acm, bits) do { \
+#define GET_BITS_NOERR(tmpval, acm, bits) \
+	do { \
 		if (acm->bit_avail >= bits) { \
 			tmpval = acm->bit_data & ((1 << bits) - 1); \
 			acm->bit_data >>= bits; \
@@ -145,7 +145,8 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 			tmpval = get_bits_reload(acm, bits); \
 	} while (0)
 
-#define GET_BITS(res, acm, bits) do { \
+#define GET_BITS(res, acm, bits) \
+	do { \
 		int tmpval; \
 		GET_BITS_NOERR(tmpval, acm, bits); \
 		if (tmpval < 0) \
@@ -153,7 +154,8 @@ static int get_bits_reload(ACMStream *acm, unsigned bits)
 		res = tmpval; \
 	} while (0)
 
-#define GET_BITS_EXPECT_EOF(res, acm, bits) do { \
+#define GET_BITS_EXPECT_EOF(res, acm, bits) \
+	do { \
 		int tmpval; \
 		GET_BITS_NOERR(tmpval, acm, bits); \
 		if (tmpval < 0) { \
@@ -173,7 +175,8 @@ static const int map_2bit_far[] = { -3, -2, +2, +3 };
 static const int map_3bit[] = { -4, -3, -2, -1, +1, +2, +3, +4 };
 
 /* IOW: (r * acm->subblock_len) + c */
-#define set_pos(acm, r, c, idx) do { \
+#define set_pos(acm, r, c, idx) \
+	do { \
 		unsigned _pos = ((r) << acm->info.acm_level) + (c); \
 		acm->block[_pos] = acm->midbuf[idx]; \
 	} while (0)
@@ -259,7 +262,8 @@ static int f_k24(ACMStream *acm, unsigned ind, unsigned col)
 		if (b == 0) {
 			/* 0 */
 			set_pos(acm, i++, col, 0);
-			if (i >= acm->info.acm_rows) break;
+			if (i >= acm->info.acm_rows)
+				break;
 			set_pos(acm, i, col, 0);
 			continue;
 		}
@@ -365,7 +369,8 @@ static int f_k45(ACMStream *acm, unsigned ind, unsigned col)
 		GET_BITS(b, acm, 1);
 		if (b == 0) {
 			/* 0 */
-			set_pos(acm, i, col, 0); i++;
+			set_pos(acm, i, col, 0);
+			i++;
 			if (i >= acm->info.acm_rows)
 				break;
 			set_pos(acm, i, col, 0);
@@ -480,14 +485,14 @@ static int f_t37(ACMStream *acm, unsigned ind, unsigned col)
 /****************/
 
 static const filler_t filler_list[] = {
-	f_zero, f_bad, f_bad, f_linear, 	/* 0..3 */
-	f_linear, f_linear, f_linear, f_linear,	/* 4..7 */
-	f_linear, f_linear, f_linear, f_linear,	/* 8..11 */
-	f_linear, f_linear, f_linear, f_linear,	/* 12..15 */
-	f_linear, f_k13, f_k12, f_t15,		/* 16..19 */
-	f_k24, f_k23, f_t27, f_k35,		/* 20..23 */
-	f_k34, f_bad, f_k45, f_k44,		/* 24..27 */
-	f_bad, f_t37, f_bad, f_bad		/* 28..31 */
+	f_zero,	  f_bad,    f_bad,    f_linear, /* 0..3 */
+	f_linear, f_linear, f_linear, f_linear, /* 4..7 */
+	f_linear, f_linear, f_linear, f_linear, /* 8..11 */
+	f_linear, f_linear, f_linear, f_linear, /* 12..15 */
+	f_linear, f_k13,    f_k12,    f_t15,	/* 16..19 */
+	f_k24,	  f_k23,    f_t27,    f_k35,	/* 20..23 */
+	f_k34,	  f_bad,    f_k45,    f_k44,	/* 24..27 */
+	f_bad,	  f_t37,    f_bad,    f_bad	/* 28..31 */
 };
 
 static int fill_block(ACMStream *acm)
@@ -516,10 +521,15 @@ static void juggle(int *wrap_p, int *block_p, unsigned sub_len, unsigned sub_cou
 		p = block_p;
 		r0 = wrap_p[0];
 		r1 = wrap_p[1];
-		for (j = 0; j < sub_count/2; j++) {
-			r2 = *p;  *p = r1*2 + (r0 + r2);  p += sub_len;
-			r3 = *p;  *p = r2*2 - (r1 + r3);  p += sub_len;
-			r0 = r2;  r1 = r3;
+		for (j = 0; j < sub_count / 2; j++) {
+			r2 = *p;
+			*p = r1 * 2 + (r0 + r2);
+			p += sub_len;
+			r3 = *p;
+			*p = r2 * 2 - (r1 + r3);
+			p += sub_len;
+			r0 = r2;
+			r1 = r3;
 		}
 		*wrap_p++ = r0;
 		*wrap_p++ = r1;
@@ -558,7 +568,7 @@ static void juggle_block(ACMStream *acm)
 		sub_count *= 2;
 
 		juggle(wrap_p, block_p, sub_len, sub_count);
-		wrap_p += sub_len*2;
+		wrap_p += sub_len * 2;
 
 		for (i = 0, p = block_p; i < sub_count; i++) {
 			p[0]++;
@@ -569,7 +579,7 @@ static void juggle_block(ACMStream *acm)
 			sub_len /= 2;
 			sub_count *= 2;
 			juggle(wrap_p, block_p, sub_len, sub_count);
-			wrap_p += sub_len*2;
+			wrap_p += sub_len * 2;
 		}
 		if (todo_count <= step_subcount)
 			break;
@@ -656,8 +666,8 @@ static unsigned char *out_u16be(int *src, unsigned char *dst, unsigned n, unsign
 	return dst;
 }
 
-static int output_values(int *src, unsigned char *dst, int n,
-		int acm_level, int bigendianp, int wordlen, int sgned)
+static int output_values(int *src, unsigned char *dst, int n, int acm_level, int bigendianp,
+			 int wordlen, int sgned)
 {
 	unsigned char *res = NULL;
 	if (wordlen == 2) {
@@ -684,15 +694,13 @@ static int output_values(int *src, unsigned char *dst, int n,
  * 'WAVC' + 'V1.00' + uncompr(4b) + compr(4b) + 12b
  */
 
-#define WAVC_ID 0x564157  /* 'WAV' */
+#define WAVC_ID 0x564157 /* 'WAV' */
 
 static int read_wavc_header(ACMStream *acm)
 {
 	static const unsigned short expect[12] = {
-		/* 'V1.0', raw_size, acm_size */
-		0x3156, 0x302E, 0,0, 0,0,
-		/* hdrlen?, chans?, bits?, hz */
-		28,0, 1, 16, 22050, 0
+		0x3156, 0x302E, 0, 0,  0,     0, /* 'V1.0', raw_size, acm_size */
+		28,	0,	1, 16, 22050, 0	 /* hdrlen?, chans?, bits?, hz */
 	};
 	unsigned short i, buf[12];
 
@@ -838,8 +846,7 @@ err_out:
 	return err;
 }
 
-int acm_read(ACMStream *acm, void *dst, unsigned numbytes,
-		 int bigendianp, int wordlen, int sgned)
+int acm_read(ACMStream *acm, void *dst, unsigned numbytes, int bigendianp, int wordlen, int sgned)
 {
 	int avail, gotbytes = 0, err;
 	int *src, numwords;
@@ -874,9 +881,8 @@ int acm_read(ACMStream *acm, void *dst, unsigned numbytes,
 	/* convert, but if dst == NULL, simulate */
 	if (dst != NULL) {
 		src = acm->block + acm->block_pos;
-		gotbytes = output_values(src, dst, numwords,
-				acm->info.acm_level,
-				bigendianp, wordlen, sgned);
+		gotbytes = output_values(src, dst, numwords, acm->info.acm_level, bigendianp,
+					 wordlen, sgned);
 	} else
 		gotbytes = numwords * wordlen;
 
@@ -906,4 +912,3 @@ void acm_close(ACMStream *acm)
 		free(acm->ampbuf);
 	free(acm);
 }
-

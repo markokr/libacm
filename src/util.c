@@ -25,23 +25,15 @@
 
 #include "libacm.h"
 
-#define WAVC_HEADER_LEN	28
-#define ACM_HEADER_LEN	14
+#define WAVC_HEADER_LEN 28
+#define ACM_HEADER_LEN 14
 
 /*
  * error strings
  */
-static const char *_errlist[] = {
-	"No error",
-	"ACM error",
-	"Cannot open file",
-	"Not an ACM file",
-	"Read error",
-	"Bad format",
-	"Corrupt file",
-	"Unexpected EOF",
-	"Stream not seekable"
-};
+static const char *_errlist[] = { "No error",	     "ACM error",      "Cannot open file",
+				  "Not an ACM file", "Read error",     "Bad format",
+				  "Corrupt file",    "Unexpected EOF", "Stream not seekable" };
 
 const char *acm_strerror(int err)
 {
@@ -245,7 +237,7 @@ int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 		if (acm->stream_pos + step > word_pos)
 			step = word_pos - acm->stream_pos;
 
-		res = acm_read(acm, NULL, step*2, 0,2,1);
+		res = acm_read(acm, NULL, step * 2, 0, 2, 1);
 		if (res < 1)
 			break;
 	}
@@ -255,8 +247,7 @@ int acm_seek_pcm(ACMStream *acm, unsigned pcm_pos)
 /*
  * read loop - full block reading
  */
-int acm_read_loop(ACMStream *acm, void *dst, unsigned bytes,
-		int bigendianp, int wordlen, int sgned)
+int acm_read_loop(ACMStream *acm, void *dst, unsigned bytes, int bigendianp, int wordlen, int sgned)
 {
 	unsigned char *dstp = dst;
 	int res, got = 0;
@@ -275,4 +266,3 @@ int acm_read_loop(ACMStream *acm, void *dst, unsigned bytes,
 	}
 	return got;
 }
-
