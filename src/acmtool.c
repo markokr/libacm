@@ -353,7 +353,7 @@ static void set_channels(const char *fn, int n_chan)
 
 	oldnum = (hdr[9] << 8) + hdr[8];
 	if (oldnum != 1 && oldnum != 2) {
-		fprintf(stderr, "%s: suspicios number of channels: %d\n",
+		fprintf(stderr, "%s: suspicious number of channels: %d\n",
 				fn, oldnum);
 		goto error;
 	}

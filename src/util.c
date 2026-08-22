@@ -39,7 +39,7 @@ static const char *_errlist[] = {
 	"Read error",
 	"Bad format",
 	"Corrupt file",
-	"Unexcpected EOF",
+	"Unexpected EOF",
 	"Stream not seekable"
 };
 
