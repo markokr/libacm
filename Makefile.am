@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src #plugins
+SUBDIRS = src
 
 EXTRA_DIST = autogen.sh clean.sh
 
