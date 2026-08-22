@@ -132,7 +132,7 @@ static void play_file(const char *fn)
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
 	while (bytes_done < total_bytes) {
-		res = acm_read_loop(acm, buf, buflen/ACM_WORD, 0,2,1);
+		res = acm_read_loop(acm, buf, buflen, 0,2,1);
 		if (res == 0)
 			break;
 		if (res > 0) {
@@ -281,9 +281,8 @@ static void decode_file(const char *fn, const char *fn2)
 	buf = xmalloc(buflen);
 
 	total_bytes = acm_pcm_total(acm) * acm_channels(acm) * ACM_WORD;
-
 	while (bytes_done < total_bytes) {
-		res = acm_read_loop(acm, buf, buflen/2, 0,2,1);
+		res = acm_read_loop(acm, buf, buflen, 0,2,1);
 		if (res == 0)
 			break;
 		if (res > 0) {
