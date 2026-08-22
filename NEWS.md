@@ -1,6 +1,6 @@
 # NEWS
 
-## Unreleased
+## Version 1.5
 
 * decode: limit total samples
 * decode: fix seeking with WAVC
