@@ -1,10 +1,10 @@
-
-AUTOMAKE_OPTIONS = 1.6 foreign
 ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = src #plugins
 
-EXTRA_DIST = autogen.sh
+EXTRA_DIST = autogen.sh clean.sh
+
+pkgconfig_DATA = $(PACKAGE).pc
 
 #
 # html

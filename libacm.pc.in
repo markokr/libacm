@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: libacm
+Description: Library for InterPlay ACM Audio format
+Version: @VERSION@
+Libs: -L${libdir} -lacm
+Cflags: -I${includedir}
