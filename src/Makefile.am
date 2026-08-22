@@ -5,7 +5,7 @@ lib_LTLIBRARIES = libacm.la
 include_HEADERS = libacm.h
 
 libacm_la_SOURCES = decode.c util.c
-libacm_la_LDFLAGS = -version-info 1:0:0
+libacm_la_LDFLAGS = -version-info 1:0:0 -no-undefined
 
 acmtool_SOURCES = acmtool.c
 
