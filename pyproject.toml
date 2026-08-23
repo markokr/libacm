@@ -1,0 +1,124 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version"]
+name = "libacm"
+description = "Interplay ACM audio codec"
+readme = "README.rst"
+requires-python = ">=3.10"
+authors = [
+    {name = "Marko Kreen", email = "markokr@gmail.com"},
+]
+license = "ISC"
+license-files = ["LICENSE"]
+dependencies = ["numpy", "soundfile", "scipy"]
+
+[project.urls]
+Homepage = "https://github.com/markokr/rarfile"
+Source = "https://github.com/markokr/rarfile"
+Issues = "https://github.com/markokr/rarfile/issues"
+Documentation = "https://rarfile.readthedocs.io"
+
+[dependency-groups]
+dev = [
+    {include-group = "docs"},
+    {include-group = "lint"},
+    {include-group = "test"},
+]
+test = [
+    "coverage",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+]
+docs = [ ]
+lint = [
+    "pylint",
+    "mypy",
+    "isort",
+    "autopep8",
+    "ruff",
+
+    "setuptools",
+    "types-setuptools",
+]
+
+[tool.setuptools]
+packages = ["libacm"]
+package-dir = {"" = "python"}
+include-package-data = false
+
+[tool.setuptools.dynamic]
+version = {attr = "libacm.__version__"}
+
+[tool.cibuildwheel.macos]
+archs = ["universal2"]
+
+[tool.autopep8]
+max_line_length = 120
+ignore = ["E265", "E266"]
+aggressive = 1
+
+[tool.isort]
+known_first_party = ["libacm"]
+multi_line_output = 5
+balanced_wrapping = true
+include_trailing_comma = true
+atomic = true
+quiet = true
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+disallow_any_decorated = true
+disallow_any_unimported = true
+#disallow_any_explicit = true
+#disallow_any_expr = true
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+ignore = [
+    'BLE001', # Do not catch blind exception
+    'DTZ', # datetime() called without a tzinfo
+    'I', # use isort instead
+    'PLR1730', # Replace `if` statement with min()
+    'RET501', # Remove explicit `return None`
+    'RUF022', # `__all__` is not sorted
+    'RUF023', # __slots__` is not sorted
+    'RUF059', # Unpacked variable X is never used
+    'S110', # `try`-`except`-`pass` detected, consider logging the exception
+    'SIM102', # Use a single `if` statement instead of nested `if` statements
+    'SIM103', # Return the condition `bool(...)` directly
+    'SIM114', # Combine `if` branches using logical `or` operator
+    'SIM115', # Use a context manager for opening files
+    'UP031', # Use format specifiers instead of percent format
+
+    'PLR0124',  # Name compared with itself, consider replacing `n1 == n1`
+    'SIM201', #  Use `n2 != d2` instead of `not n2 == d2`
+    'UP020', # [*] Use builtin `open`
+    'C405', # Unnecessary list literal (rewrite as a set literal)
+    'F841', # Local variable `rf` is assigned to but never used
+
+    'PYI034',
+    # fix
+
+    'PT031', # `pytest.warns()` block should contain a single simple statement
+
+    'PIE790', #Unnecessary `pass` statement - fix
+    'RUF100', # Unused blanket `noqa` directive - fix
+    'SIM117', # Use a single `with` statement with multiple contexts instead of nested `with` statements - fix
+    'UP024', # Replace aliased errors with `OSError` [IOError] - fix
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+#addopts = "-ra -q"
+testpaths = ["test"]
+
+[tool.pyright]
+reportPrivateUsage = false
+reportUnsupportedDunderAll = false
