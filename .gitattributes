@@ -1,0 +1,5 @@
+*.[ch]			diff=cpp
+*.py			diff=python
+
+*.acm			binary
+*.wav			binary

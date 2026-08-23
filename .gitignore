@@ -22,3 +22,8 @@ ltmain.sh
 missing
 *.m4
 stamp-*
+
+test/*.enc.acm
+test/*.enc.wav
+test/*.dec.acm
+test/*.dec.wav
