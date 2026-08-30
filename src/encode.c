@@ -608,32 +608,28 @@ static void analyze(Encoder *enc)
  */
 static int32_t estimate_bits(Encoder *enc, int32_t step)
 {
-	/* Ternary packer id keyed by peak magnitude */
-	static const uint32_t ternary_fmt[] = { Zero, Base3, Base5, Linear3, Base11, Zero };
+	/* Uniform packers keyed by peak magnitude */
+	static const uint32_t flat_fmt[] = { Zero, Base3, Base5, Linear3, Base11 };
 
 	int32_t quantPower = 3;
-	int32_t bits = enc->m_numColumns * 5 + 20; /* 5-bit id per subband + 4+16 block header */
+	int32_t bits = 4 + 16 + enc->m_numColumns * 5; /* header bits */
 
 	float *coeffs = enc->m_levelSlots[enc->m_levels];
 	float *colBase = enc->m_levelSlots[enc->m_levels];
 
-	Quantizer q;
-	quant_init(&q, step);
+	quant_init(&enc->m_quantizer, step);
 
-	for (int32_t col = 0; col < enc->m_numColumns; ++col) {
+	for (int32_t col = 0; col < enc->m_numColumns; col++) {
 		int32_t minIdx = 0x10000;
 		int32_t maxIdx = -0x10000;
 		if (enc->m_samples_per_subband > 0) {
-			float *p = colBase;
-			for (int row = enc->m_samples_per_subband; row != 0; --row) {
-				int32_t idx = quant_value(&q, *p);
-				p += enc->m_numColumns;
-
-				if (idx < minIdx) {
-					minIdx = idx;
+			for (int row = 0; row < enc->m_samples_per_subband; row++) {
+				int32_t w = codeword(enc, row, col);
+				if (w < minIdx) {
+					minIdx = w;
 				}
-				if (idx > maxIdx) {
-					maxIdx = idx;
+				if (w > maxIdx) {
+					maxIdx = w;
 				}
 			}
 		}
@@ -651,71 +647,69 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			enc->m_pFormatIdPerColumn[col] = Zero;
 		} else if (absPeak <= 4) {
 			int32_t tailBits = 1;
-			int32_t runFmt = absPeak * 3 + 14; /* k13 / k24 / k35 / k45 */
+			int32_t runFmt = absPeak * 3 + Peak1ZZ - 3; /* Peak1,2,3,4*/
 			if (absPeak != 1) {
 				tailBits = ((absPeak - 2) < 1) ? 2 : 3;
 			}
 
 			/* costA vs costB: the two run-length orientations of the k-code */
-			int32_t costA = 0;
-			int32_t costB = 0;
-			for (int row = 0; row < enc->m_samples_per_subband; ++row) {
-				float sample = coeffs[(row * enc->m_numColumns) + col];
-				int32_t idx = quant_value(&q, sample);
-				if (idx) {
+			int32_t costPaired = 0;
+			int32_t costUnpaired = 0;
+			for (int row = 0; row < enc->m_samples_per_subband; row++) {
+				int32_t w = codeword(enc, row, col);
+				if (w != 0) {
 					if (tailBits != 1) {
-						if (idx == -1 || idx == 1) {
-							costA += 4;
-							costB += 3;
+						if (w == -1 || w == 1) {
+							costPaired += 4;
+							costUnpaired += 3;
 						} else {
-							costA += tailBits + 2;
-							costB += tailBits + 1;
+							costPaired += tailBits + 2;
+							costUnpaired += tailBits + 1;
 						}
 					} else {
-						costA += 3;
-						costB += 2;
+						costPaired += 3;
+						costUnpaired += 2;
 					}
-				} else if ((enc->m_samples_per_subband - 1) <= row) {
-					costA += 2;
-					++costB;
+				} else if (last_row(enc, row)) {
+					costPaired += 2;
+					++costUnpaired;
 				} else {
-					float sample =
-					    coeffs[((row + 1) * enc->m_numColumns) + col];
-					int32_t next = quant_value(&q, sample);
-					if (next) {
-						costA += 2;
-						++costB;
+					int32_t next = codeword(enc, row + 1, col);
+					if (next != 0) {
+						costPaired += 2;
+						++costUnpaired;
 					} else {
-						++costA;
-						costB += 2;
+						++costPaired;
+						costUnpaired += 2;
 						++row;
 					}
 				}
 			}
 
-			if (costA > costB) {
-				costA = costB;
+			if (costPaired > costUnpaired) {
+				cost = costUnpaired;
 				++runFmt; /* switch to k12 / k23 / k34 / k44 orientation */
+			} else {
+				cost = costPaired;
 			}
 
-			int32_t ternBits;
+			int32_t flatBits;
 			if (absPeak != 4) {
-				ternBits =
+				flatBits =
 				    ((enc->m_samples_per_subband + 2) / 3) * ((absPeak * 2) + 3);
 			} else {
-				ternBits = (((enc->m_samples_per_subband < -1)
+				flatBits = (((enc->m_samples_per_subband < -1)
 						 ? (enc->m_samples_per_subband + 2)
 						 : (enc->m_samples_per_subband + 1))
 					    >> 1)
 					   * 7;
 			}
 
-			if (costA > ternBits) {
-				costA = ternBits;
-				runFmt = ternary_fmt[absPeak];
+			if (flatBits < cost) {
+				cost = flatBits;
+				runFmt = flat_fmt[absPeak];
 			}
 
-			cost = costA;
 			enc->m_pFormatIdPerColumn[col] = runFmt;
 		} else if (minIdx >= -5 && maxIdx <= 5) {
 			if ((enc->m_samples_per_subband < -1)) {
