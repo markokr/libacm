@@ -24,7 +24,7 @@
  *
  *   1. Analysis filter bank  -- analyze() / analyze_subband().
  *      A dyadic tree of 2-channel QMF stages recursively splits the signal
- *      into m_numColumns == 2^levels uniform subbands.  std_lo_filter is the
+ *      into n_columns == 2^levels uniform subbands.  std_lo_filter is the
  *      low-pass (scaling) filter, std_hi_filter the high-pass (wavelet) filter.
  *      This is the inverse of the decoder's juggle_block().
  *
@@ -53,49 +53,49 @@
 #include "encode.h"
 
 typedef struct {
-	FILE *m_outFile;
-	uint32_t m_bitData;
-	uint32_t m_bitCount;
+	FILE *out;
+	uint32_t buf;
+	uint32_t count;
 } BitsEncoder;
 
-static void bits_write(BitsEncoder *bits, int32_t val, uint32_t numBits)
+static void bits_write(BitsEncoder *bits, int32_t val, uint32_t n_bits)
 {
-	assert((numBits + bits->m_bitCount) <= 32);
-	bits->m_bitData |= (uint32_t)(val << bits->m_bitCount);
-	bits->m_bitCount += numBits;
+	assert((n_bits + bits->count) <= 32);
+	bits->buf |= (uint32_t)(val << bits->count);
+	bits->count += n_bits;
 
-	while (bits->m_bitCount >= 8) {
-		uint8_t v = bits->m_bitData & 0xFF;
-		putc(v, bits->m_outFile);
+	while (bits->count >= 8) {
+		uint8_t v = bits->buf & 0xFF;
+		fputc(v, bits->out);
 
-		bits->m_bitData >>= 8;
-		bits->m_bitCount -= 8;
+		bits->buf >>= 8;
+		bits->count -= 8;
 	}
 }
 
 static void bits_flush(BitsEncoder *bits)
 {
-	while (bits->m_bitCount >= 8) {
-		uint8_t v = bits->m_bitData & 0xFF;
-		putc(v, bits->m_outFile);
+	while (bits->count >= 8) {
+		uint8_t v = bits->buf & 0xFF;
+		fputc(v, bits->out);
 
-		bits->m_bitData >>= 8;
-		bits->m_bitCount -= 8;
+		bits->buf >>= 8;
+		bits->count -= 8;
 	}
 
-	if (bits->m_bitCount > 0) {
-		uint8_t v = bits->m_bitData & 0xFF;
-		putc(v, bits->m_outFile);
-		bits->m_bitCount = 0;
-		bits->m_bitData = 0;
+	if (bits->count > 0) {
+		uint8_t v = bits->buf & 0xFF;
+		fputc(v, bits->out);
+		bits->count = 0;
+		bits->buf = 0;
 	}
 }
 
 static void bits_init(BitsEncoder *bits, FILE *out)
 {
-	bits->m_outFile = out;
-	bits->m_bitData = 0;
-	bits->m_bitCount = 0;
+	bits->out = out;
+	bits->buf = 0;
+	bits->count = 0;
 }
 
 typedef struct {
@@ -127,24 +127,23 @@ static int32_t quant_value(Quantizer *q, float value)
 #define FILTER_LEN 15
 
 typedef struct {
-	ReadSampleFunction *m_reader;
-	void *m_pReaderData;
-	uint32_t m_sampleCount;
-	float m_volume;
-	BitsEncoder m_bits;
-	int8_t m_levels;		 /* decomposition depth (decoder: acm_level) */
-	int32_t m_numColumns;		 /* subband count = 1 << levels (decoder: acm_cols) */
-	int32_t m_samples_per_subband;	 /* samples per subband (decoder: acm_rows) */
-	int32_t m_samplesPerBlock;	 /* numColumns * samples_per_subband (decoder: block_len) */
-	int32_t m_primingLen;		 /* filter warm-up samples fed before/after the signal */
-	float **m_levelSlots;		 /* per-level coefficient buffers of the analysis tree */
+	ReadSampleFunction *reader_func;
+	void *reader_arg;
+	int32_t reader_eof;
+
+	uint32_t sample_count;
+	float volume;
+	BitsEncoder bits;
+	int8_t n_levels;		 /* decomposition depth (decoder: acm_level) */
+	int32_t n_columns;		 /* subband count = 1 << levels (decoder: acm_cols) */
+	int32_t n_rows;			 /* samples per subband (decoder: acm_rows) */
+	int32_t block_len;		 /* numColumns * samples_per_subband (decoder: block_len) */
+	int32_t priming_len;		 /* filter warm-up samples fed before/after the signal */
+	float **level_slots;		 /* per-level coefficient buffers of the analysis tree */
 	float *m_pCurrBlockData;	 /* write cursor for incoming samples (level-0 buffer) */
 	int32_t m_blockSamplesRemaining; /* samples still needed to fill the current block */
 	int32_t m_bandWriteEnabled;	 /* 0 while priming, 1 once real output should be emitted */
-	int32_t m_finishedReading;	 /* set once the input reader hits EOF */
 	int32_t m_filterLen;		 /* analysis filter length (15: symmetric, 8 unique taps) */
-	const float *m_lo_filter;	 /* analysis low-pass (scaling) filter */
-	const float *m_hi_filter;	 /* analysis high-pass (wavelet) filter */
 	uint32_t *m_pFormatIdPerColumn;	 /* chosen packer id per subband */
 	int32_t m_quantPower;		 /* log2 of the dequant table size (decoder: pwr) */
 	int32_t m_quantStep;		 /* uniform quantizer step size (decoder: val) */
@@ -164,14 +163,14 @@ static const float std_hi_filter[] = {
 
 static inline int32_t codeword(Encoder *enc, int32_t row, int32_t col)
 {
-	float *coeffs = enc->m_levelSlots[enc->m_levels];
-	float value = coeffs[(row * enc->m_numColumns) + col];
+	float *coeffs = enc->level_slots[enc->n_levels];
+	float value = coeffs[(row * enc->n_columns) + col];
 	return quant_value(&enc->m_quantizer, value);
 }
 
 static inline int last_row(Encoder *enc, int32_t row)
 {
-	return row == enc->m_samples_per_subband - 1;
+	return row == enc->n_rows - 1;
 }
 
 typedef void (*PackFunc)(Encoder *enc, int32_t col, uint32_t formatId);
@@ -183,44 +182,44 @@ static void pack_zero(Encoder *enc, int32_t col, uint32_t formatId)
 static void pack_linear(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	int32_t mid = (1 << (formatId - 1));
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
-		bits_write(&enc->m_bits, w + mid, formatId);
+		bits_write(&enc->bits, w + mid, formatId);
 	}
 }
 
 static void pack_peak1zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
 				/* 0 */
-				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->bits, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->m_bits, 1, 2);
+				bits_write(&enc->bits, 1, 2);
 			}
 		} else {
 			/* 1, 1, ? */
-			bits_write(&enc->m_bits, 3, 2);
-			bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
+			bits_write(&enc->bits, 3, 2);
+			bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
 		}
 	}
 }
 
 static void pack_peak1(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->m_bits, 0, 1);
+			bits_write(&enc->bits, 0, 1);
 		} else {
 			/* 1, ? */
-			bits_write(&enc->m_bits, 1, 1);
-			bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
+			bits_write(&enc->bits, 1, 1);
+			bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
 		}
 	}
 }
@@ -228,7 +227,7 @@ static void pack_peak1(Encoder *enc, int32_t col, uint32_t formatId)
 /* Base-3 packing: 3 indices in {-1,0,1} per 5-bit word (decoder: f_t15). */
 static void pack_base3(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 1;
 
@@ -238,33 +237,33 @@ static void pack_base3(Encoder *enc, int32_t col, uint32_t formatId)
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 1) * 9;
 
-		bits_write(&enc->m_bits, packed, 5);
+		bits_write(&enc->bits, packed, 5);
 	}
 }
 
 /* Run-length code, peak 2, zero-run pairing (decoder: f_k24). */
 static void pack_peak2zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
 				/* 0 */
-				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->bits, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->m_bits, 1, 2);
+				bits_write(&enc->bits, 1, 2);
 			}
 		} else {
 			/* 1, 1, ?, ? */
-			bits_write(&enc->m_bits, 3, 2);
+			bits_write(&enc->bits, 3, 2);
 			if (w < 0) {
 				w += 2;
 			} else {
 				w += 1;
 			}
-			bits_write(&enc->m_bits, w, 2);
+			bits_write(&enc->bits, w, 2);
 		}
 	}
 }
@@ -272,21 +271,21 @@ static void pack_peak2zz(Encoder *enc, int32_t col, uint32_t formatId)
 /* Run-length code, peak 2, no zero-run pairing (decoder: f_k23). */
 static void pack_peak2(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->m_bits, 0, 1);
+			bits_write(&enc->bits, 0, 1);
 		} else {
 			/* 1, ?, ? */
-			bits_write(&enc->m_bits, 1, 1);
+			bits_write(&enc->bits, 1, 1);
 			if (w < 0) {
 				w += 2;
 			} else {
 				w += 1;
 			}
-			bits_write(&enc->m_bits, w, 2);
+			bits_write(&enc->bits, w, 2);
 		}
 	}
 }
@@ -294,7 +293,7 @@ static void pack_peak2(Encoder *enc, int32_t col, uint32_t formatId)
 /* Base-5 packing: 3 indices in {-2..2} per 7-bit word (decoder: f_t27). */
 static void pack_base5(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 2;
 
@@ -304,38 +303,38 @@ static void pack_base5(Encoder *enc, int32_t col, uint32_t formatId)
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 2) * 25;
 
-		bits_write(&enc->m_bits, packed, 7);
+		bits_write(&enc->bits, packed, 7);
 	}
 }
 
 /* Run-length code, peak 3, zero-run pairing (decoder: f_k35). */
 static void pack_peak3zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
 				/* 0 */
-				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->bits, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->m_bits, 1, 2);
+				bits_write(&enc->bits, 1, 2);
 			}
 		} else {
 			/* 1, 1 */
-			bits_write(&enc->m_bits, 3, 2);
+			bits_write(&enc->bits, 3, 2);
 			if (w != -1 && w != 1) {
 				/* 1, ?, ? */
-				bits_write(&enc->m_bits, 1, 1);
+				bits_write(&enc->bits, 1, 1);
 				if (w < 0) {
 					w += 3;
 				}
-				bits_write(&enc->m_bits, w, 2);
+				bits_write(&enc->bits, w, 2);
 			} else {
 				/* 0, ? */
-				bits_write(&enc->m_bits, 0, 1);
-				bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
+				bits_write(&enc->bits, 0, 1);
+				bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
 			}
 		}
 	}
@@ -344,24 +343,24 @@ static void pack_peak3zz(Encoder *enc, int32_t col, uint32_t formatId)
 /* Run-length code, peak 3, no zero-run pairing (decoder: f_k34). */
 static void pack_peak3(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->m_bits, 0, 1);
+			bits_write(&enc->bits, 0, 1);
 		} else {
-			bits_write(&enc->m_bits, 1, 1);
+			bits_write(&enc->bits, 1, 1);
 			if (w != -1 && w != 1) {
 				/* 1, 1, ?, ? */
-				bits_write(&enc->m_bits, 1, 1);
+				bits_write(&enc->bits, 1, 1);
 				if (w < 0) {
 					w += 3;
 				}
-				bits_write(&enc->m_bits, w, 2);
+				bits_write(&enc->bits, w, 2);
 			} else {
 				/* 1, 0, ?, ? */
-				bits_write(&enc->m_bits, 0, 1);
-				bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
+				bits_write(&enc->bits, 0, 1);
+				bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
 			}
 		}
 	}
@@ -370,25 +369,25 @@ static void pack_peak3(Encoder *enc, int32_t col, uint32_t formatId)
 /* Run-length code, peak 4, zero-run pairing (decoder: f_k45). */
 static void pack_peak4zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
 				/* 0 */
-				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->bits, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->m_bits, 1, 2);
+				bits_write(&enc->bits, 1, 2);
 			}
 		} else {
-			bits_write(&enc->m_bits, 3, 2);
+			bits_write(&enc->bits, 3, 2);
 			if (w >= 0) {
 				w += 3;
 			} else {
 				w += 4;
 			}
-			bits_write(&enc->m_bits, w, 3);
+			bits_write(&enc->bits, w, 3);
 		}
 	}
 }
@@ -396,19 +395,19 @@ static void pack_peak4zz(Encoder *enc, int32_t col, uint32_t formatId)
 /* Run-length code, peak 4, no zero-run pairing (decoder: f_k44). */
 static void pack_peak4(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
-			bits_write(&enc->m_bits, 0, 1);
+			bits_write(&enc->bits, 0, 1);
 		} else {
-			bits_write(&enc->m_bits, 1, 1);
+			bits_write(&enc->bits, 1, 1);
 			if (w < 0) {
 				w += 4;
 			} else {
 				w += 3;
 			}
-			bits_write(&enc->m_bits, w, 3);
+			bits_write(&enc->bits, w, 3);
 		}
 	}
 }
@@ -416,14 +415,14 @@ static void pack_peak4(Encoder *enc, int32_t col, uint32_t formatId)
 /* Base-11 packing: 2 indices in {-5..5} per 7-bit word (decoder: f_t37). */
 static void pack_base11(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 5;
 
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 5) * 11;
 
-		bits_write(&enc->m_bits, packed, 7);
+		bits_write(&enc->bits, packed, 7);
 	}
 }
 
@@ -463,25 +462,22 @@ static const PackFunc packer_list[] = {
 
 static void reader_init(Encoder *enc, ReadSampleFunction *read, void *data)
 {
-	enc->m_reader = read;
-	enc->m_pReaderData = data;
+	enc->reader_func = read;
+	enc->reader_arg = data;
 }
 
-static int setup_encoder(Encoder *enc, int filterLen, const float lo_filter[],
-			 const float hi_filter[], int8_t levels, int samples_per_subband)
+static int setup_encoder(Encoder *enc, int filterLen, int8_t levels, int samples_per_subband)
 {
 	enc->m_filterLen = filterLen;
-	enc->m_lo_filter = lo_filter;
-	enc->m_hi_filter = hi_filter;
-	enc->m_levels = levels;
-	enc->m_numColumns = 1 << levels;
-	enc->m_samples_per_subband = samples_per_subband;
-	enc->m_samplesPerBlock = samples_per_subband * enc->m_numColumns;
+	enc->n_levels = levels;
+	enc->n_columns = 1 << levels;
+	enc->n_rows = samples_per_subband;
+	enc->block_len = samples_per_subband * enc->n_columns;
 
 	int halfFilter = (((filterLen < -1) ? (filterLen + 1) : (filterLen)) + 1) >> 1;
-	enc->m_primingLen = halfFilter * (enc->m_numColumns - 1);
-	enc->m_levelSlots = (float **)malloc(sizeof(float *) * (levels + 1));
-	if (enc->m_levelSlots == NULL)
+	enc->priming_len = halfFilter * (enc->n_columns - 1);
+	enc->level_slots = (float **)malloc(sizeof(float *) * (levels + 1));
+	if (enc->level_slots == NULL)
 		return 0;
 
 	if (levels >= 0) {
@@ -491,47 +487,46 @@ static int setup_encoder(Encoder *enc, int filterLen, const float lo_filter[],
 				overlap = (filterLen - 1) << i;
 			}
 
-			float *buf =
-			    (float *)malloc((enc->m_samplesPerBlock + overlap) * sizeof(float));
-			enc->m_levelSlots[i] = buf;
+			float *buf = (float *)malloc((enc->block_len + overlap) * sizeof(float));
+			enc->level_slots[i] = buf;
 			if (buf == NULL)
 				return 0;
 
-			memset(buf, 0, (enc->m_samplesPerBlock + overlap) * sizeof(float));
-			enc->m_levelSlots[i] += overlap;
+			memset(buf, 0, (enc->block_len + overlap) * sizeof(float));
+			enc->level_slots[i] += overlap;
 		}
 	}
 
-	enc->m_pFormatIdPerColumn = (uint32_t *)malloc(enc->m_numColumns * sizeof(uint32_t));
+	enc->m_pFormatIdPerColumn = (uint32_t *)malloc(enc->n_columns * sizeof(uint32_t));
 	if (enc->m_pFormatIdPerColumn == NULL)
 		return 0;
 
-	enc->m_sampleCount = 0;
+	enc->sample_count = 0;
 
-	int32_t startOffset = ((enc->m_samplesPerBlock * sizeof(float) * 25) - enc->m_primingLen)
-			      % enc->m_samplesPerBlock;
-	enc->m_pCurrBlockData = enc->m_levelSlots[0] + startOffset;
-	enc->m_blockSamplesRemaining = enc->m_samplesPerBlock - startOffset;
+	int32_t startOffset =
+	    ((enc->block_len * sizeof(float) * 25) - enc->priming_len) % enc->block_len;
+	enc->m_pCurrBlockData = enc->level_slots[0] + startOffset;
+	enc->m_blockSamplesRemaining = enc->block_len - startOffset;
 	enc->m_bandWriteEnabled = 0;
-	enc->m_finishedReading = 0;
+	enc->reader_eof = 0;
 	return 1;
 }
 
 static void destroy_encoder(Encoder *enc)
 {
-	if (enc->m_levelSlots != NULL) {
-		for (int i = 0; i <= enc->m_levels; ++i) {
-			if (enc->m_levelSlots[i] != 0) {
+	if (enc->level_slots != NULL) {
+		for (int i = 0; i <= enc->n_levels; ++i) {
+			if (enc->level_slots[i] != 0) {
 				int overlap = 0;
-				if (enc->m_levels != i) {
+				if (enc->n_levels != i) {
 					overlap = (enc->m_filterLen - 1) << i;
 				}
 
-				free(enc->m_levelSlots[i] - overlap);
+				free(enc->level_slots[i] - overlap);
 			}
 		}
 
-		free(enc->m_levelSlots);
+		free(enc->level_slots);
 	}
 
 	if (enc->m_pFormatIdPerColumn != NULL) {
@@ -555,7 +550,7 @@ static void analyze_subband(Encoder *enc, float *src, float *dst, int32_t stride
 	src -= reach;
 
 	for (int i = 0; i < count; ++i) {
-		const float *coef = (i & 1) ? enc->m_hi_filter : enc->m_lo_filter;
+		const float *coef = (i & 1) ? std_hi_filter : std_lo_filter;
 		float *pLeft = src - reach;
 		float *pRight = src + reach;
 
@@ -576,19 +571,19 @@ static void analyze_subband(Encoder *enc, float *src, float *dst, int32_t stride
 
 /*
  * Forward analysis filter bank: a dyadic tree of 2-channel QMF stages that
- * splits the block into m_numColumns == 2^levels uniform subbands.  Inverse
+ * splits the block into n_columns == 2^levels uniform subbands.  Inverse
  * of the decoder's juggle_block().
  */
 static void analyze(Encoder *enc)
 {
-	if (enc->m_levels <= 0)
+	if (enc->n_levels <= 0)
 		return;
 
-	int32_t stride = 1;			/* subbands produced so far == interleave stride */
-	int32_t count = enc->m_samplesPerBlock; /* samples per subband at this level */
-	for (int i = 0; i < enc->m_levels; ++i) {
-		float *src = enc->m_levelSlots[i];
-		float *dst = enc->m_levelSlots[i + 1];
+	int32_t stride = 1;		/* subbands produced so far == interleave stride */
+	int32_t count = enc->block_len; /* samples per subband at this level */
+	for (int i = 0; i < enc->n_levels; ++i) {
+		float *src = enc->level_slots[i];
+		float *dst = enc->level_slots[i + 1];
 
 		for (int band = 0; band < stride; ++band) {
 			analyze_subband(enc, src++, dst++, stride, count);
@@ -612,33 +607,33 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 	static const uint32_t flat_fmt[] = { Zero, Base3, Base5, Linear3, Base11 };
 
 	int32_t quantPower = 3;
-	int32_t bits = 4 + 16 + enc->m_numColumns * 5; /* header bits */
+	int32_t bits = 4 + 16 + enc->n_columns * 5; /* header bits */
 
-	float *coeffs = enc->m_levelSlots[enc->m_levels];
-	float *colBase = enc->m_levelSlots[enc->m_levels];
+	float *coeffs = enc->level_slots[enc->n_levels];
+	float *colBase = enc->level_slots[enc->n_levels];
 
 	quant_init(&enc->m_quantizer, step);
 
-	for (int32_t col = 0; col < enc->m_numColumns; col++) {
-		int32_t minIdx = 0x10000;
-		int32_t maxIdx = -0x10000;
-		if (enc->m_samples_per_subband > 0) {
-			for (int row = 0; row < enc->m_samples_per_subband; row++) {
+	for (int32_t col = 0; col < enc->n_columns; col++) {
+		int32_t minWord = 0x10000;
+		int32_t maxWord = -0x10000;
+		if (enc->n_rows > 0) {
+			for (int row = 0; row < enc->n_rows; row++) {
 				int32_t w = codeword(enc, row, col);
-				if (w < minIdx) {
-					minIdx = w;
+				if (w < minWord) {
+					minWord = w;
 				}
-				if (w > maxIdx) {
-					maxIdx = w;
+				if (w > maxWord) {
+					maxWord = w;
 				}
 			}
 		}
 
-		int32_t absPeak = abs(minIdx);
-		if (absPeak < maxIdx) {
-			absPeak = maxIdx;
-		} else if (absPeak < -maxIdx) {
-			absPeak = -maxIdx;
+		int32_t absPeak = abs(minWord);
+		if (absPeak < maxWord) {
+			absPeak = maxWord;
+		} else if (absPeak < -maxWord) {
+			absPeak = -maxWord;
 		}
 
 		int32_t cost;
@@ -655,7 +650,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			/* costA vs costB: the two run-length orientations of the k-code */
 			int32_t costPaired = 0;
 			int32_t costUnpaired = 0;
-			for (int row = 0; row < enc->m_samples_per_subband; row++) {
+			for (int row = 0; row < enc->n_rows; row++) {
 				int32_t w = codeword(enc, row, col);
 				if (w != 0) {
 					if (tailBits != 1) {
@@ -672,37 +667,37 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 					}
 				} else if (last_row(enc, row)) {
 					costPaired += 2;
-					++costUnpaired;
+					costUnpaired += 1;
 				} else {
 					int32_t next = codeword(enc, row + 1, col);
 					if (next != 0) {
 						costPaired += 2;
-						++costUnpaired;
+						costUnpaired += 1;
 					} else {
-						++costPaired;
+						costPaired += 1;
 						costUnpaired += 2;
-						++row;
+						row++;
 					}
 				}
 			}
 
 			if (costPaired > costUnpaired) {
 				cost = costUnpaired;
-				++runFmt; /* switch to k12 / k23 / k34 / k44 orientation */
+				runFmt += 1;
 			} else {
 				cost = costPaired;
 			}
 
 			int32_t flatBits;
 			if (absPeak != 4) {
-				flatBits =
-				    ((enc->m_samples_per_subband + 2) / 3) * ((absPeak * 2) + 3);
+				/* triplets */
+				flatBits = ((enc->n_rows + 2) / 3) * ((absPeak * 2) + 3);
 			} else {
-				flatBits = (((enc->m_samples_per_subband < -1)
-						 ? (enc->m_samples_per_subband + 2)
-						 : (enc->m_samples_per_subband + 1))
-					    >> 1)
-					   * 7;
+				/* base11 pairs */
+				flatBits =
+				    (((enc->n_rows < -1) ? (enc->n_rows + 2) : (enc->n_rows + 1))
+				     >> 1)
+				    * 7;
 			}
 
 			if (flatBits < cost) {
@@ -711,22 +706,22 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			}
 
 			enc->m_pFormatIdPerColumn[col] = runFmt;
-		} else if (minIdx >= -5 && maxIdx <= 5) {
-			if ((enc->m_samples_per_subband < -1)) {
-				cost = ((enc->m_samples_per_subband + 2) >> 1) * 7;
+		} else if (minWord >= -5 && maxWord <= 5) {
+			if ((enc->n_rows < -1)) {
+				cost = ((enc->n_rows + 2) >> 1) * 7;
 			} else {
-				cost = ((enc->m_samples_per_subband + 1) >> 1) * 7;
+				cost = ((enc->n_rows + 1) >> 1) * 7;
 			}
 			enc->m_pFormatIdPerColumn[col] = Base11;
 		} else {
 			/* Fixed-width "linear": pick the bit width that spans the index range */
 			int32_t mag = 0;
-			if (minIdx < 0) {
-				mag = ~minIdx;
+			if (minWord < 0) {
+				mag = ~minWord;
 			}
 
-			if (maxIdx > 0 && ((uint32_t)(mag) < (uint32_t)(maxIdx))) {
-				mag = maxIdx;
+			if (maxWord > 0 && ((uint32_t)(mag) < (uint32_t)(maxWord))) {
+				mag = maxWord;
 			}
 
 			int32_t nbits = 1;
@@ -739,7 +734,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 				quantPower = nbits - 1;
 			}
 			enc->m_pFormatIdPerColumn[col] = nbits; /* linear: format id == bit width */
-			cost = nbits * enc->m_samples_per_subband;
+			cost = nbits * enc->n_rows;
 		}
 
 		bits += cost;
@@ -778,12 +773,12 @@ static void choose_quant_step(Encoder *enc)
 
 static void write_bands(Encoder *enc)
 {
-	bits_write(&enc->m_bits, enc->m_quantPower, 4);
-	bits_write(&enc->m_bits, enc->m_quantStep, 16);
+	bits_write(&enc->bits, enc->m_quantPower, 4);
+	bits_write(&enc->bits, enc->m_quantStep, 16);
 
-	for (int i = 0; i < enc->m_numColumns; ++i) {
+	for (int i = 0; i < enc->n_columns; ++i) {
 		const uint32_t formatId = enc->m_pFormatIdPerColumn[i];
-		bits_write(&enc->m_bits, formatId, 5);
+		bits_write(&enc->bits, formatId, 5);
 		packer_list[formatId](enc, i, formatId);
 	}
 }
@@ -795,9 +790,9 @@ static void write_bands(Encoder *enc)
 static void shift_overlap(Encoder *enc)
 {
 	int32_t overlap = enc->m_filterLen - 1;
-	for (int i = 0; i < enc->m_levels; ++i, overlap += overlap) {
-		float *pDst = enc->m_levelSlots[i] - overlap;
-		float *pSrc = pDst + enc->m_samplesPerBlock;
+	for (int i = 0; i < enc->n_levels; ++i, overlap += overlap) {
+		float *pDst = enc->level_slots[i] - overlap;
+		float *pSrc = pDst + enc->block_len;
 		memcpy(pDst, pSrc, overlap * sizeof(float));
 	}
 }
@@ -813,24 +808,24 @@ static void process_block(Encoder *enc)
 
 	shift_overlap(enc);
 
-	enc->m_blockSamplesRemaining += enc->m_samplesPerBlock;
-	enc->m_pCurrBlockData -= enc->m_samplesPerBlock;
+	enc->m_blockSamplesRemaining += enc->block_len;
+	enc->m_pCurrBlockData -= enc->block_len;
 }
 
 static void encode_sample(Encoder *enc)
 {
 	int32_t sample = 0;
-	if (enc->m_finishedReading == 0) {
-		sample = (*enc->m_reader)(enc->m_pReaderData);
+	if (enc->reader_eof == 0) {
+		sample = (*enc->reader_func)(enc->reader_arg);
 		if (sample == (int32_t)ReadSampleEof) {
-			enc->m_finishedReading = 1;
+			enc->reader_eof = 1;
 			return;
 		}
 
-		++enc->m_sampleCount;
+		++enc->sample_count;
 	}
 
-	*enc->m_pCurrBlockData++ = enc->m_volume * (float)sample;
+	*enc->m_pCurrBlockData++ = enc->volume * (float)sample;
 
 	if (--enc->m_blockSamplesRemaining == 0) {
 		process_block(enc);
@@ -839,7 +834,7 @@ static void encode_sample(Encoder *enc)
 
 static void encode_flush(Encoder *enc)
 {
-	if (enc->m_samplesPerBlock == enc->m_blockSamplesRemaining) {
+	if (enc->block_len == enc->m_blockSamplesRemaining) {
 		// no data in the block
 		return;
 	}
@@ -856,7 +851,7 @@ static void encode_flush(Encoder *enc)
 	/////////////
 	// NOTE: The Interplay one doesn't do this ... but it should as there
 	// may be bits left in the bit processor that should go out
-	bits_flush(&enc->m_bits);
+	bits_flush(&enc->bits);
 	/////////////
 }
 
@@ -869,28 +864,27 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 
 	int32_t startPos = ftell(out);
 	reader_init(&enc, read, data);
-	bits_init(&enc.m_bits, out);
-	enc.m_volume = volume;
+	bits_init(&enc.bits, out);
+	enc.volume = volume;
 
-	if (!setup_encoder(&enc, FILTER_LEN, std_lo_filter, std_hi_filter, levels,
-			   samples_per_subband)) {
+	if (!setup_encoder(&enc, FILTER_LEN, levels, samples_per_subband)) {
 		destroy_encoder(&enc);
 		return 0;
 	}
 
-	enc.m_bitBudget = (int32_t)(16.0 * enc.m_samplesPerBlock * comp_ratio);
+	enc.m_bitBudget = (int32_t)(16.0 * enc.block_len * comp_ratio);
 
-	bits_write(&enc.m_bits, 0x032897, 24); // Signature
-	bits_write(&enc.m_bits, 1, 8);	       // Version
+	bits_write(&enc.bits, 0x032897, 24); // Signature
+	bits_write(&enc.bits, 1, 8);	     // Version
 
-	bits_write(&enc.m_bits, enc.m_sampleCount, 32); // Placeholder
-	bits_write(&enc.m_bits, channels, 16);
-	bits_write(&enc.m_bits, sample_rate, 16);
-	bits_write(&enc.m_bits, levels, 4);
-	bits_write(&enc.m_bits, samples_per_subband, 12);
+	bits_write(&enc.bits, enc.sample_count, 32); // Placeholder
+	bits_write(&enc.bits, channels, 16);
+	bits_write(&enc.bits, sample_rate, 16);
+	bits_write(&enc.bits, levels, 4);
+	bits_write(&enc.bits, samples_per_subband, 12);
 
 	// Prime the analysis filters with lead-in samples before emitting output.
-	int32_t primeCount = enc.m_primingLen;
+	int32_t primeCount = enc.priming_len;
 	enc.m_bandWriteEnabled = 0;
 	while (primeCount) {
 		encode_sample(&enc);
@@ -899,12 +893,12 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 	enc.m_bandWriteEnabled = 1;
 
 	// Process samples
-	while (!enc.m_finishedReading) {
+	while (!enc.reader_eof) {
 		encode_sample(&enc);
 	}
 
 	// Flush the filters with the matching lead-out samples.
-	primeCount = enc.m_primingLen;
+	primeCount = enc.priming_len;
 	while (primeCount) {
 		encode_sample(&enc);
 		--primeCount;
@@ -914,7 +908,7 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 
 	// Go back and write the Sample Count out proper
 	fseek(out, startPos + 4, SEEK_SET);
-	bits_write(&enc.m_bits, enc.m_sampleCount, 32);
+	bits_write(&enc.bits, enc.sample_count, 32);
 	fseek(out, 0, SEEK_END);
 
 	destroy_encoder(&enc);
