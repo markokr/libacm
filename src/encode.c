@@ -131,24 +131,28 @@ typedef struct {
 	void *reader_arg;
 	int32_t reader_eof;
 
+	BitsEncoder bits;
+
 	uint32_t sample_count;
 	float volume;
-	BitsEncoder bits;
-	int8_t n_levels;		 /* decomposition depth (decoder: acm_level) */
-	int32_t n_columns;		 /* subband count = 1 << levels (decoder: acm_cols) */
-	int32_t n_rows;			 /* samples per subband (decoder: acm_rows) */
-	int32_t block_len;		 /* numColumns * samples_per_subband (decoder: block_len) */
-	int32_t priming_len;		 /* filter warm-up samples fed before/after the signal */
-	float **level_slots;		 /* per-level coefficient buffers of the analysis tree */
+
+	int8_t n_levels;     /* decomposition depth (decoder: acm_level) */
+	int32_t n_columns;   /* subband count = 1 << levels (decoder: acm_cols) */
+	int32_t n_rows;	     /* samples per subband (decoder: acm_rows) */
+	int32_t block_len;   /* numColumns * samples_per_subband (decoder: block_len) */
+	int32_t priming_len; /* filter warm-up samples fed before/after the signal */
+	float **level_slots; /* per-level coefficient buffers of the analysis tree */
+
 	float *m_pCurrBlockData;	 /* write cursor for incoming samples (level-0 buffer) */
 	int32_t m_blockSamplesRemaining; /* samples still needed to fill the current block */
-	int32_t m_bandWriteEnabled;	 /* 0 while priming, 1 once real output should be emitted */
-	int32_t m_filterLen;		 /* analysis filter length (15: symmetric, 8 unique taps) */
-	uint32_t *m_pFormatIdPerColumn;	 /* chosen packer id per subband */
-	int32_t m_quantPower;		 /* log2 of the dequant table size (decoder: pwr) */
-	int32_t m_quantStep;		 /* uniform quantizer step size (decoder: val) */
-	int32_t m_bitBudget;		 /* target encoded size per block, in bits */
-	Quantizer m_quantizer;
+
+	int32_t m_bandWriteEnabled;	/* 0 while priming, 1 once real output should be emitted */
+	int32_t m_filterLen;		/* analysis filter length (15: symmetric, 8 unique taps) */
+	uint32_t *m_pFormatIdPerColumn; /* chosen packer id per subband */
+	int32_t quant_power;		/* log2 of the dequant table size (decoder: pwr) */
+	int32_t quant_step;		/* uniform quantizer step size (decoder: val) */
+	int32_t bit_budget;		/* target encoded size per block, in bits */
+	Quantizer quantizer;
 } Encoder;
 
 static const float std_lo_filter[] = {
@@ -165,7 +169,7 @@ static inline int32_t codeword(Encoder *enc, int32_t row, int32_t col)
 {
 	float *coeffs = enc->level_slots[enc->n_levels];
 	float value = coeffs[(row * enc->n_columns) + col];
-	return quant_value(&enc->m_quantizer, value);
+	return quant_value(&enc->quantizer, value);
 }
 
 static inline int last_row(Encoder *enc, int32_t row)
@@ -188,6 +192,7 @@ static void pack_linear(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
+/* Words {-1..1}, assume zero pair */
 static void pack_peak1zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -209,7 +214,8 @@ static void pack_peak1zz(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-static void pack_peak1(Encoder *enc, int32_t col, uint32_t formatId)
+/* Words {-1..1}, assume zero */
+static void pack_peak1z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -241,7 +247,7 @@ static void pack_base3(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 2, zero-run pairing (decoder: f_k24). */
+/* Words {-2..2}, assume zero pair */
 static void pack_peak2zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -268,7 +274,7 @@ static void pack_peak2zz(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 2, no zero-run pairing (decoder: f_k23). */
+/* Words {-2..2}, assume zero */
 static void pack_peak2(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -290,7 +296,7 @@ static void pack_peak2(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Base-5 packing: 3 indices in {-2..2} per 7-bit word (decoder: f_t27). */
+/* Base-5 packing: 3 words in {-2..2} per 7-bits */
 static void pack_base5(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -307,7 +313,7 @@ static void pack_base5(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 3, zero-run pairing (decoder: f_k35). */
+/* Words {-3..3}, assume zero pair */
 static void pack_peak3zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -340,8 +346,8 @@ static void pack_peak3zz(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 3, no zero-run pairing (decoder: f_k34). */
-static void pack_peak3(Encoder *enc, int32_t col, uint32_t formatId)
+/* Words in {-3..3}, assume zero */
+static void pack_peak3z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -366,7 +372,7 @@ static void pack_peak3(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 4, zero-run pairing (decoder: f_k45). */
+/* Words in {-4..4}, assume zero pair */
 static void pack_peak4zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -392,8 +398,8 @@ static void pack_peak4zz(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Run-length code, peak 4, no zero-run pairing (decoder: f_k44). */
-static void pack_peak4(Encoder *enc, int32_t col, uint32_t formatId)
+/* Words {-4..4}, assume zero */
+static void pack_peak4z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -412,7 +418,7 @@ static void pack_peak4(Encoder *enc, int32_t col, uint32_t formatId)
 	}
 }
 
-/* Base-11 packing: 2 indices in {-5..5} per 7-bit word (decoder: f_t37). */
+/* Base-11 packing: 2 words in {-5..5} per 7-bits */
 static void pack_base11(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -430,19 +436,24 @@ enum PackerId {
 	Zero,
 	Linear3 = 3,
 	Linear16 = 16,
+
 	Peak1ZZ,
-	Peak1,
-	Base3,
+	Peak1Z,
+	Peak1Base3,
+
 	Peak2ZZ,
-	Peak2,
-	Base5,
+	Peak2Z,
+	Peak2Base5,
+
 	Peak3ZZ,
-	Peak3,
-	_Unused25,
+	Peak3Z,
+	_Unused_25_,
+
 	Peak4ZZ,
-	Peak4,
-	_Unused28,
-	Base11,
+	Peak4Z,
+	_Unused_28_,
+
+	Peak5Base11,
 };
 
 /*
@@ -454,9 +465,9 @@ static const PackFunc packer_list[] = {
 	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 4 .. 7 */
 	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 8 .. 11 */
 	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 12 .. 15 */
-	pack_linear,  pack_peak1zz, pack_peak1,	  pack_base3,	/* 16 .. 19 */
+	pack_linear,  pack_peak1zz, pack_peak1z,  pack_base3,	/* 16 .. 19 */
 	pack_peak2zz, pack_peak2,   pack_base5,	  pack_peak3zz, /* 20 .. 23 */
-	pack_peak3,   NULL,	    pack_peak4zz, pack_peak4,	/* 24 .. 27 */
+	pack_peak3z,  NULL,	    pack_peak4zz, pack_peak4z,	/* 24 .. 27 */
 	NULL,	      pack_base11,  NULL,	  NULL		/* 28 .. 31 */
 };
 
@@ -599,12 +610,12 @@ static void analyze(Encoder *enc)
  * Quantizes every coefficient with q = floor((x + step/2) / step) (clamped),
  * finds the peak index per subband, picks the cheapest packer for it, and
  * returns the total encoded size of the block in bits.  Side effects: fills
- * m_pFormatIdPerColumn[] and records m_quantPower / m_quantStep.
+ * m_pFormatIdPerColumn[] and records quant_power / quant_step.
  */
 static int32_t estimate_bits(Encoder *enc, int32_t step)
 {
 	/* Uniform packers keyed by peak magnitude */
-	static const uint32_t flat_fmt[] = { Zero, Base3, Base5, Linear3, Base11 };
+	static const uint32_t flat_fmt[] = { Zero, Peak1Base3, Peak2Base5, Linear3, Peak5Base11 };
 
 	int32_t quantPower = 3;
 	int32_t bits = 4 + 16 + enc->n_columns * 5; /* header bits */
@@ -612,7 +623,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 	float *coeffs = enc->level_slots[enc->n_levels];
 	float *colBase = enc->level_slots[enc->n_levels];
 
-	quant_init(&enc->m_quantizer, step);
+	quant_init(&enc->quantizer, step);
 
 	for (int32_t col = 0; col < enc->n_columns; col++) {
 		int32_t minWord = 0x10000;
@@ -642,7 +653,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			enc->m_pFormatIdPerColumn[col] = Zero;
 		} else if (absPeak <= 4) {
 			int32_t tailBits = 1;
-			int32_t runFmt = absPeak * 3 + Peak1ZZ - 3; /* Peak1,2,3,4*/
+			int32_t runFmt = absPeak * 3 + Peak1ZZ - 3; /* Peak1Z,2,3,4*/
 			if (absPeak != 1) {
 				tailBits = ((absPeak - 2) < 1) ? 2 : 3;
 			}
@@ -712,7 +723,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			} else {
 				cost = ((enc->n_rows + 1) >> 1) * 7;
 			}
-			enc->m_pFormatIdPerColumn[col] = Base11;
+			enc->m_pFormatIdPerColumn[col] = Peak5Base11;
 		} else {
 			/* Fixed-width "linear": pick the bit width that spans the index range */
 			int32_t mag = 0;
@@ -741,16 +752,16 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 		++colBase;
 	}
 
-	enc->m_quantPower = quantPower;
-	enc->m_quantStep = step;
-	quant_init(&enc->m_quantizer, step);
+	enc->quant_power = quantPower;
+	enc->quant_step = step;
+	quant_init(&enc->quantizer, step);
 
 	return bits;
 }
 
 /*
  * Rate control: binary-search the quant step so the encoded block is the
- * largest that still fits within m_bitBudget (a smaller step is finer and
+ * largest that still fits within bit_budget (a smaller step is finer and
  * costs more bits).
  */
 static void choose_quant_step(Encoder *enc)
@@ -759,22 +770,22 @@ static void choose_quant_step(Encoder *enc)
 	do {
 		int32_t mid = (lo + hi) >> 1;
 		int32_t bits = estimate_bits(enc, mid);
-		if (bits > enc->m_bitBudget) {
+		if (bits > enc->bit_budget) {
 			lo = mid + 1;
 		} else {
 			hi = mid - 1;
 		}
 	} while (hi >= lo);
 
-	if (enc->m_quantStep != lo) {
+	if (enc->quant_step != lo) {
 		estimate_bits(enc, lo);
 	}
 }
 
 static void write_bands(Encoder *enc)
 {
-	bits_write(&enc->bits, enc->m_quantPower, 4);
-	bits_write(&enc->bits, enc->m_quantStep, 16);
+	bits_write(&enc->bits, enc->quant_power, 4);
+	bits_write(&enc->bits, enc->quant_step, 16);
 
 	for (int i = 0; i < enc->n_columns; ++i) {
 		const uint32_t formatId = enc->m_pFormatIdPerColumn[i];
@@ -872,7 +883,7 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 		return 0;
 	}
 
-	enc.m_bitBudget = (int32_t)(16.0 * enc.block_len * comp_ratio);
+	enc.bit_budget = (int32_t)(16.0 * enc.block_len * comp_ratio);
 
 	bits_write(&enc.bits, 0x032897, 24); // Signature
 	bits_write(&enc.bits, 1, 8);	     // Version
