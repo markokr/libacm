@@ -99,6 +99,34 @@ static void bits_init(BitsEncoder *bits, FILE *out)
 }
 
 typedef struct {
+	float step;
+	float halfStep;
+	int32_t minIdx;
+	int32_t maxIdx;
+} Quantizer;
+
+static void quant_init(Quantizer *q, int32_t step)
+{
+	q->step = (float)step;
+	q->halfStep = step * 0.5f;
+	q->minIdx = (int32_t)ceilf(-32767.0f / step);
+	q->maxIdx = (int32_t)floorf(32767.0f / step);
+}
+
+static int32_t quant_value(Quantizer *q, int32_t value)
+{
+	int32_t w = (int32_t)floorf((value + q->halfStep) / q->step);
+	if (w < q->minIdx) {
+		w = q->minIdx;
+	} else if (w > q->maxIdx) {
+		w = q->maxIdx;
+	}
+	return w;
+}
+
+#define FILTER_LEN 15
+
+typedef struct {
 	ReadSampleFunction *m_reader;
 	void *m_pReaderData;
 	uint32_t m_sampleCount;
@@ -121,6 +149,7 @@ typedef struct {
 	int32_t m_quantPower;		 /* log2 of the dequant table size (decoder: pwr) */
 	int32_t m_quantStep;		 /* uniform quantizer step size (decoder: val) */
 	int32_t m_bitBudget;		 /* target encoded size per block, in bits */
+	Quantizer m_quantizer;
 } Encoder;
 
 static const float std_lo_filter[] = {
@@ -133,564 +162,313 @@ static const float std_hi_filter[] = {
 	0.050528999f,  -0.12055097f,   -0.29304558f,   0.70617616f,
 };
 
+static inline int32_t codeword(Encoder *enc, int32_t row, int32_t col)
+{
+	float *coeffs = enc->m_levelSlots[enc->m_levels];
+	int32_t value = coeffs[(row * enc->m_numColumns) + col];
+	return quant_value(&enc->m_quantizer, value);
+}
+
+static inline int last_row(Encoder *enc, int32_t row)
+{
+	return row == enc->m_samples_per_subband - 1;
+}
+
 typedef void (*PackFunc)(Encoder *enc, int32_t col, uint32_t formatId);
 
-/* All-zero subband: nothing to emit beyond the format id (decoder: f_zero). */
 static void pack_zero(Encoder *enc, int32_t col, uint32_t formatId)
 {
 }
 
-/* Fixed-width PCM index, formatId bits each, biased by half its range (decoder: f_linear). */
 static void pack_linear(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	float *p = &enc->m_levelSlots[enc->m_levels][col];
-	for (int32_t i = 0; i < enc->m_samples_per_subband; ++i) {
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (idx > maxIdx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		bits_write(&enc->m_bits, idx + (1 << (formatId - 1)), formatId);
+	int32_t mid = (1 << (formatId - 1));
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		bits_write(&enc->m_bits, w + mid, formatId);
 	}
 }
 
-/* Run-length code, peak 1, zero-run pairing (decoder: f_k13). */
-static void pack_k13(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak1zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (idx == 0) {
-			if (n != 0 && !(int)floorf((*p + halfStep) / step)) {
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+				/* 0 */
 				bits_write(&enc->m_bits, 0, 1);
-
-				if (n == 0)
-					return;
-				--n;
-				p += enc->m_numColumns;
-				continue;
+				row++;
+			} else {
+				/* 1, 0 */
+				bits_write(&enc->m_bits, 1, 2);
 			}
-
-			bits_write(&enc->m_bits, 1, 2);
-			continue;
+		} else {
+			/* 1, 1, ? */
+			bits_write(&enc->m_bits, 3, 2);
+			bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
 		}
-
-		bits_write(&enc->m_bits, 3, 2);
-		bits_write(&enc->m_bits, (idx == 1) ? 1 : 0, 1);
 	}
 }
 
-/* Run-length code, peak 1, no zero-run pairing (decoder: f_k12). */
-static void pack_k12(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak1(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (idx > maxIdx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-
-		if (!idx) {
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			/* 0 */
 			bits_write(&enc->m_bits, 0, 1);
-			continue;
+		} else {
+			/* 1, ? */
+			bits_write(&enc->m_bits, 1, 1);
+			bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
 		}
-
-		bits_write(&enc->m_bits, 1, 1);
-		bits_write(&enc->m_bits, (idx == 1) ? 1 : 0, 1);
 	}
 }
 
 /* Base-3 packing: 3 indices in {-1,0,1} per 5-bit word (decoder: f_t15). */
-static void pack_t15(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_base3(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		int32_t packed = w + 1;
 
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-		p += enc->m_numColumns;
-		int32_t packed = idx + 1;
-		if (n) {
-			--n;
-			idx = (int32_t)floorf((*p + halfStep) / step);
-			if (minIdx > idx) {
-				idx = minIdx;
-			} else if (maxIdx < idx) {
-				idx = maxIdx;
-			}
-			p += enc->m_numColumns;
-		} else {
-			idx = 0;
-		}
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 1) * 3;
 
-		packed += idx * 3 + 3;
-		if (n) {
-			--n;
-			idx = (int32_t)floorf((*p + halfStep) / step);
-			if (minIdx > idx) {
-				idx = minIdx;
-			} else if (maxIdx < idx) {
-				idx = maxIdx;
-			}
-			p += enc->m_numColumns;
-		} else {
-			idx = 0;
-		}
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 1) * 9;
 
-		bits_write(&enc->m_bits, idx * 9 + 9 + packed, 5);
+		bits_write(&enc->m_bits, packed, 5);
 	}
 }
 
 /* Run-length code, peak 2, zero-run pairing (decoder: f_k24). */
-static void pack_k24(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak2zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (idx == 0) {
-			if (n != 0 && !(int32_t)floorf((*p + halfStep) / step)) {
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+				/* 0 */
 				bits_write(&enc->m_bits, 0, 1);
-
-				if (n == 0)
-					return;
-				--n;
-				p += enc->m_numColumns;
-				continue;
+				row++;
+			} else {
+				/* 1, 0 */
+				bits_write(&enc->m_bits, 1, 2);
 			}
-			bits_write(&enc->m_bits, 1, 2);
-			continue;
-		}
-		bits_write(&enc->m_bits, 3, 2);
-		if (idx < 0) {
-			idx += 2;
 		} else {
-			++idx;
+			/* 1, 1, ?, ? */
+			bits_write(&enc->m_bits, 3, 2);
+			if (w < 0) {
+				w += 2;
+			} else {
+				w += 1;
+			}
+			bits_write(&enc->m_bits, w, 2);
 		}
-
-		bits_write(&enc->m_bits, idx, 2);
 	}
 }
 
 /* Run-length code, peak 2, no zero-run pairing (decoder: f_k23). */
-static void pack_k23(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak2(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
 
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (!idx) {
+		if (w == 0) {
+			/* 0 */
 			bits_write(&enc->m_bits, 0, 1);
-			continue;
-		}
-		bits_write(&enc->m_bits, 1, 1);
-
-		if (idx < 0) {
-			idx += 2;
 		} else {
-			++idx;
+			/* 1, ?, ? */
+			bits_write(&enc->m_bits, 1, 1);
+			if (w < 0) {
+				w += 2;
+			} else {
+				w += 1;
+			}
+			bits_write(&enc->m_bits, w, 2);
 		}
-
-		bits_write(&enc->m_bits, idx, 2);
 	}
 }
 
 /* Base-5 packing: 3 indices in {-2..2} per 7-bit word (decoder: f_t27). */
-static void pack_t27(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_base5(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		int32_t packed = w + 2;
 
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 2) * 5;
 
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 2) * 25;
 
-		int32_t packed = idx + 2;
-		p += enc->m_numColumns;
-		if (n) {
-			--n;
-			idx = (int32_t)floorf((*p + halfStep) / step);
-			if (minIdx > idx) {
-				idx = minIdx;
-			} else if (maxIdx < idx) {
-				idx = maxIdx;
-			}
-			p += enc->m_numColumns;
-		} else {
-			idx = 0;
-		}
-
-		packed += idx * 5 + 10;
-		if (n) {
-			--n;
-			idx = (int32_t)floorf((*p + halfStep) / step);
-			if (minIdx > idx) {
-				idx = minIdx;
-			} else if (maxIdx < idx) {
-				idx = maxIdx;
-			}
-			p += enc->m_numColumns;
-		} else {
-			idx = 0;
-		}
-
-		bits_write(&enc->m_bits, idx * 25 + 50 + packed, 7);
+		bits_write(&enc->m_bits, packed, 7);
 	}
 }
 
 /* Run-length code, peak 3, zero-run pairing (decoder: f_k35). */
-static void pack_k35(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak3zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (!idx) {
-			if (n != 0) {
-				if (!(int32_t)floorf((*p + halfStep) / step)) {
-					bits_write(&enc->m_bits, 0, 1);
-
-					if (n == 0)
-						return;
-					--n;
-
-					p += enc->m_numColumns;
-					continue;
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+				/* 0 */
+				bits_write(&enc->m_bits, 0, 1);
+				row++;
+			} else {
+				/* 1, 0 */
+				bits_write(&enc->m_bits, 1, 2);
+			}
+		} else {
+			/* 1, 1 */
+			bits_write(&enc->m_bits, 3, 2);
+			if (w != -1 && w != 1) {
+				/* 1, ?, ? */
+				bits_write(&enc->m_bits, 1, 1);
+				if (w < 0) {
+					w += 3;
 				}
+				bits_write(&enc->m_bits, w, 2);
+			} else {
+				/* 0, ? */
+				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
 			}
-
-			bits_write(&enc->m_bits, 1, 2);
-			continue;
 		}
-
-		bits_write(&enc->m_bits, 3, 2);
-
-		if (idx != -1 && idx != 1) {
-			bits_write(&enc->m_bits, 1, 1);
-
-			if (idx < 0) {
-				idx += 3;
-			}
-
-			bits_write(&enc->m_bits, idx, 2);
-			continue;
-		}
-
-		bits_write(&enc->m_bits, 0, 1);
-		bits_write(&enc->m_bits, (idx == 1) ? 1 : 0, 1);
 	}
 }
 
 /* Run-length code, peak 3, no zero-run pairing (decoder: f_k34). */
-static void pack_k34(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak3(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
-
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (!idx) {
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			/* 0 */
 			bits_write(&enc->m_bits, 0, 1);
-			continue;
-		}
-
-		bits_write(&enc->m_bits, 1, 1);
-
-		if (idx != -1 && idx != 1) {
+		} else {
 			bits_write(&enc->m_bits, 1, 1);
-
-			if (idx < 0) {
-				idx += 3;
+			if (w != -1 && w != 1) {
+				/* 1, 1, ?, ? */
+				bits_write(&enc->m_bits, 1, 1);
+				if (w < 0) {
+					w += 3;
+				}
+				bits_write(&enc->m_bits, w, 2);
+			} else {
+				/* 1, 0, ?, ? */
+				bits_write(&enc->m_bits, 0, 1);
+				bits_write(&enc->m_bits, (w == 1) ? 1 : 0, 1);
 			}
-			bits_write(&enc->m_bits, idx, 2);
-			continue;
 		}
-
-		bits_write(&enc->m_bits, 0, 1);
-		bits_write(&enc->m_bits, (idx == 1) ? 1 : 0, 1);
 	}
 }
 
 /* Run-length code, peak 4, zero-run pairing (decoder: f_k45). */
-static void pack_k45(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak4zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)(ceilf(-32767.0f / step));
-	const int32_t maxIdx = (int32_t)(floorf(32767.0f / step));
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (!idx) {
-			if (n) {
-				int32_t next = (int32_t)floorf((*p + halfStep) / step);
-				if (!next) {
-					bits_write(&enc->m_bits, 0, 1);
-
-					if (n == 0)
-						return;
-
-					--n;
-					p += enc->m_numColumns;
-					continue;
-				}
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		if (w == 0) {
+			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+				/* 0 */
+				bits_write(&enc->m_bits, 0, 1);
+				row++;
+			} else {
+				/* 1, 0 */
+				bits_write(&enc->m_bits, 1, 2);
 			}
-
-			bits_write(&enc->m_bits, 1, 2);
-			continue;
-		}
-
-		bits_write(&enc->m_bits, 3, 2);
-
-		if (idx >= 0) {
-			idx += 3;
 		} else {
-			idx += 4;
+			bits_write(&enc->m_bits, 3, 2);
+			if (w >= 0) {
+				w += 3;
+			} else {
+				w += 4;
+			}
+			bits_write(&enc->m_bits, w, 3);
 		}
-
-		bits_write(&enc->m_bits, idx, 3);
 	}
 }
 
 /* Run-length code, peak 4, no zero-run pairing (decoder: f_k44). */
-static void pack_k44(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_peak4(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)(enc->m_quantStep);
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
 
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (idx < minIdx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		p += enc->m_numColumns;
-		if (!idx) {
+		if (w == 0) {
 			bits_write(&enc->m_bits, 0, 1);
-			continue;
-		}
-
-		bits_write(&enc->m_bits, 1, 1);
-
-		if (idx < 0) {
-			idx += 4;
 		} else {
-			idx += 3;
+			bits_write(&enc->m_bits, 1, 1);
+			if (w < 0) {
+				w += 4;
+			} else {
+				w += 3;
+			}
+			bits_write(&enc->m_bits, w, 3);
 		}
-
-		bits_write(&enc->m_bits, idx, 3);
 	}
 }
 
 /* Base-11 packing: 2 indices in {-5..5} per 7-bit word (decoder: f_t37). */
-static void pack_t37(Encoder *enc, int32_t col, uint32_t formatId)
+static void pack_base11(Encoder *enc, int32_t col, uint32_t formatId)
 {
-	const float step = (float)enc->m_quantStep;
-	const float halfStep = step * 0.5f;
-	const int32_t minIdx = (int32_t)ceilf(-32767.0f / step);
-	const int32_t maxIdx = (int32_t)floorf(32767.0f / step);
+	for (int32_t row = 0; row < enc->m_samples_per_subband; row++) {
+		int32_t w = codeword(enc, row, col);
+		int32_t packed = w + 5;
 
-	const float *p = &enc->m_levelSlots[enc->m_levels][col];
-	int32_t n = enc->m_samples_per_subband;
-	while (n) {
-		--n;
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 5) * 11;
 
-		int32_t idx = (int32_t)floorf((*p + halfStep) / step);
-		if (minIdx > idx) {
-			idx = minIdx;
-		} else if (maxIdx < idx) {
-			idx = maxIdx;
-		}
-
-		int32_t packed = idx + 5;
-		p += enc->m_numColumns;
-		if (n != 0) {
-			--n;
-
-			idx = (int32_t)floorf((*p + halfStep) / step);
-			if (minIdx > idx) {
-				idx = minIdx;
-			} else if (maxIdx < idx) {
-				idx = maxIdx;
-			}
-
-			p += enc->m_numColumns;
-		} else {
-			idx = 0;
-		}
-
-		bits_write(&enc->m_bits, 11 * idx + 55 + packed, 7);
+		bits_write(&enc->m_bits, packed, 7);
 	}
 }
+
+enum PackerId {
+	Zero,
+	Linear3 = 3,
+	Linear16 = 16,
+	Peak1ZZ,
+	Peak1,
+	Base3,
+	Peak2ZZ,
+	Peak2,
+	Base5,
+	Peak3ZZ,
+	Peak3,
+	_Unused25,
+	Peak4ZZ,
+	Peak4,
+	_Unused28,
+	Base11,
+};
 
 /*
  * Packer dispatch table, indexed by the 5-bit format id.  Index-aligned with
  * the decoder's filler_list[] so id N encodes exactly what f_*(N) decodes.
  */
-static const PackFunc packer_list[] = { pack_zero,
-					NULL,
-					NULL,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_linear,
-					pack_k13,
-					pack_k12,
-					pack_t15,
-					pack_k24,
-					pack_k23,
-					pack_t27,
-					pack_k35,
-					pack_k34,
-					NULL,
-					pack_k45,
-					pack_k44,
-					NULL,
-					pack_t37,
-					NULL,
-					NULL };
+static const PackFunc packer_list[] = {
+	pack_zero,    NULL,	    NULL,	  pack_linear,	/* 0 .. 3 */
+	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 4 .. 7 */
+	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 8 .. 11 */
+	pack_linear,  pack_linear,  pack_linear,  pack_linear,	/* 12 .. 15 */
+	pack_linear,  pack_peak1zz, pack_peak1,	  pack_base3,	/* 16 .. 19 */
+	pack_peak2zz, pack_peak2,   pack_base5,	  pack_peak3zz, /* 20 .. 23 */
+	pack_peak3,   NULL,	    pack_peak4zz, pack_peak4,	/* 24 .. 27 */
+	NULL,	      pack_base11,  NULL,	  NULL		/* 28 .. 31 */
+};
 
-static void ReadSample_init(Encoder *enc, ReadSampleFunction *read, void *data)
+static void reader_init(Encoder *enc, ReadSampleFunction *read, void *data)
 {
 	enc->m_reader = read;
 	enc->m_pReaderData = data;
 }
 
-static int SetupEncoder(Encoder *enc, int filterLen, const float lo_filter[],
-			const float hi_filter[], int8_t levels, int samples_per_subband)
+static int setup_encoder(Encoder *enc, int filterLen, const float lo_filter[],
+			 const float hi_filter[], int8_t levels, int samples_per_subband)
 {
 	enc->m_filterLen = filterLen;
 	enc->m_lo_filter = lo_filter;
@@ -713,7 +491,8 @@ static int SetupEncoder(Encoder *enc, int filterLen, const float lo_filter[],
 				overlap = (filterLen - 1) << i;
 			}
 
-			float *buf = (float *)malloc((enc->m_samplesPerBlock + overlap) * sizeof(float));
+			float *buf =
+			    (float *)malloc((enc->m_samplesPerBlock + overlap) * sizeof(float));
 			enc->m_levelSlots[i] = buf;
 			if (buf == NULL)
 				return 0;
@@ -729,9 +508,8 @@ static int SetupEncoder(Encoder *enc, int filterLen, const float lo_filter[],
 
 	enc->m_sampleCount = 0;
 
-	int32_t startOffset =
-	    ((enc->m_samplesPerBlock * sizeof(float) * 25) - enc->m_primingLen)
-	    % enc->m_samplesPerBlock;
+	int32_t startOffset = ((enc->m_samplesPerBlock * sizeof(float) * 25) - enc->m_primingLen)
+			      % enc->m_samplesPerBlock;
 	enc->m_pCurrBlockData = enc->m_levelSlots[0] + startOffset;
 	enc->m_blockSamplesRemaining = enc->m_samplesPerBlock - startOffset;
 	enc->m_bandWriteEnabled = 0;
@@ -739,7 +517,7 @@ static int SetupEncoder(Encoder *enc, int filterLen, const float lo_filter[],
 	return 1;
 }
 
-static void DestroyEncoder(Encoder *enc)
+static void destroy_encoder(Encoder *enc)
 {
 	if (enc->m_levelSlots != NULL) {
 		for (int i = 0; i <= enc->m_levels; ++i) {
@@ -806,8 +584,8 @@ static void analyze(Encoder *enc)
 	if (enc->m_levels <= 0)
 		return;
 
-	int32_t stride = 1;			 /* subbands produced so far == interleave stride */
-	int32_t count = enc->m_samplesPerBlock;	 /* samples per subband at this level */
+	int32_t stride = 1;			/* subbands produced so far == interleave stride */
+	int32_t count = enc->m_samplesPerBlock; /* samples per subband at this level */
 	for (int i = 0; i < enc->m_levels; ++i) {
 		float *src = enc->m_levelSlots[i];
 		float *dst = enc->m_levelSlots[i + 1];
@@ -830,22 +608,17 @@ static void analyze(Encoder *enc)
  */
 static int32_t estimate_bits(Encoder *enc, int32_t step)
 {
-	/* Ternary packer id keyed by peak magnitude: t15, t27, (unused), t37. */
-	static const uint32_t ternary_fmt[] = { 0x00, 0x13, 0x16, 0x03, 0x1D, 0x00 };
+	/* Ternary packer id keyed by peak magnitude */
+	static const uint32_t ternary_fmt[] = { Zero, Base3, Base5, Linear3, Base11, Zero };
 
 	int32_t quantPower = 3;
 	int32_t bits = enc->m_numColumns * 5 + 20; /* 5-bit id per subband + 4+16 block header */
 
-	float halfStep = (float)step * 0.5f;
-	// Clamp indices to the range pack_linear actually emits.  Without this,
-	// a coefficient whose index exceeds +-32767 makes estimate_bits pick a
-	// formatId >= 17 (which collides with the packed-format ids: 17 == k13)
-	// and drives quantPower to 16, overflowing the 4-bit power field in the
-	// block header.
-	const int32_t minClamp = (int32_t)ceilf(-32767.0f / (float)step);
-	const int32_t maxClamp = (int32_t)floorf(32767.0f / (float)step);
 	float *coeffs = enc->m_levelSlots[enc->m_levels];
 	float *colBase = enc->m_levelSlots[enc->m_levels];
+
+	Quantizer q;
+	quant_init(&q, step);
 
 	for (int32_t col = 0; col < enc->m_numColumns; ++col) {
 		int32_t minIdx = 0x10000;
@@ -853,21 +626,15 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 		if (enc->m_samples_per_subband > 0) {
 			float *p = colBase;
 			for (int row = enc->m_samples_per_subband; row != 0; --row) {
-				int32_t idx = (int32_t)floor((*p + halfStep) / (float)step);
-				if (idx < minClamp) {
-					idx = minClamp;
-				} else if (idx > maxClamp) {
-					idx = maxClamp;
-				}
-				if (minIdx > idx) {
+				int32_t idx = quant_value(&q, *p);
+				p += enc->m_numColumns;
+
+				if (idx < minIdx) {
 					minIdx = idx;
 				}
-
-				if (maxIdx < idx) {
+				if (idx > maxIdx) {
 					maxIdx = idx;
 				}
-
-				p += enc->m_numColumns;
 			}
 		}
 
@@ -881,7 +648,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 		int32_t cost;
 		if (absPeak == 0) {
 			cost = 0;
-			enc->m_pFormatIdPerColumn[col] = 0;
+			enc->m_pFormatIdPerColumn[col] = Zero;
 		} else if (absPeak <= 4) {
 			int32_t tailBits = 1;
 			int32_t runFmt = absPeak * 3 + 14; /* k13 / k24 / k35 / k45 */
@@ -893,9 +660,8 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			int32_t costA = 0;
 			int32_t costB = 0;
 			for (int row = 0; row < enc->m_samples_per_subband; ++row) {
-				int32_t idx =
-				    (int)floor((coeffs[(row * enc->m_numColumns) + col] + halfStep)
-					       / (float)step);
+				int32_t sample = coeffs[(row * enc->m_numColumns) + col];
+				int32_t idx = quant_value(&q, sample);
 				if (idx) {
 					if (tailBits != 1) {
 						if (idx == -1 || idx == 1) {
@@ -913,9 +679,9 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 					costA += 2;
 					++costB;
 				} else {
-					int32_t next = (int)floor(
-					    (coeffs[((row + 1) * enc->m_numColumns) + col] + halfStep)
-					    / (float)step);
+					int32_t sample =
+					    coeffs[((row + 1) * enc->m_numColumns) + col];
+					int32_t next = quant_value(&q, sample);
 					if (next) {
 						costA += 2;
 						++costB;
@@ -952,11 +718,12 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			cost = costA;
 			enc->m_pFormatIdPerColumn[col] = runFmt;
 		} else if (minIdx >= -5 && maxIdx <= 5) {
-			cost = (((enc->m_samples_per_subband < -1) ? (enc->m_samples_per_subband + 2)
-								   : (enc->m_samples_per_subband + 1))
-				>> 1)
-			       * 7;
-			enc->m_pFormatIdPerColumn[col] = 0x1D; /* t37 */
+			if ((enc->m_samples_per_subband < -1)) {
+				cost = ((enc->m_samples_per_subband + 2) >> 1) * 7;
+			} else {
+				cost = ((enc->m_samples_per_subband + 1) >> 1) * 7;
+			}
+			enc->m_pFormatIdPerColumn[col] = Base11;
 		} else {
 			/* Fixed-width "linear": pick the bit width that spans the index range */
 			int32_t mag = 0;
@@ -987,6 +754,8 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 
 	enc->m_quantPower = quantPower;
 	enc->m_quantStep = step;
+	quant_init(&enc->m_quantizer, step);
+
 	return bits;
 }
 
@@ -997,13 +766,11 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
  */
 static void choose_quant_step(Encoder *enc)
 {
-	int32_t lo = 1;
-	int32_t hi = 0x7FFF;
-
+	int32_t lo = 1, hi = 0x7FFF;
 	do {
-		const int32_t mid = (lo + hi) >> 1;
+		int32_t mid = (lo + hi) >> 1;
 		int32_t bits = estimate_bits(enc, mid);
-		if (enc->m_bitBudget < bits) {
+		if (bits > enc->m_bitBudget) {
 			lo = mid + 1;
 		} else {
 			hi = mid - 1;
@@ -1015,7 +782,7 @@ static void choose_quant_step(Encoder *enc)
 	}
 }
 
-static void WriteBands(Encoder *enc)
+static void write_bands(Encoder *enc)
 {
 	bits_write(&enc->m_bits, enc->m_quantPower, 4);
 	bits_write(&enc->m_bits, enc->m_quantStep, 16);
@@ -1041,14 +808,13 @@ static void shift_overlap(Encoder *enc)
 	}
 }
 
-static void ProcessBlock(Encoder *enc)
+static void process_block(Encoder *enc)
 {
 	analyze(enc);
 
-	if (enc->m_bandWriteEnabled != 0) {
+	if (enc->m_bandWriteEnabled) {
 		choose_quant_step(enc);
-
-		WriteBands(enc);
+		write_bands(enc);
 	}
 
 	shift_overlap(enc);
@@ -1057,7 +823,7 @@ static void ProcessBlock(Encoder *enc)
 	enc->m_pCurrBlockData -= enc->m_samplesPerBlock;
 }
 
-static void EncodeSample(Encoder *enc)
+static void encode_sample(Encoder *enc)
 {
 	int32_t sample = 0;
 	if (enc->m_finishedReading == 0) {
@@ -1073,11 +839,11 @@ static void EncodeSample(Encoder *enc)
 	*enc->m_pCurrBlockData++ = enc->m_volume * (float)sample;
 
 	if (--enc->m_blockSamplesRemaining == 0) {
-		ProcessBlock(enc);
+		process_block(enc);
 	}
 }
 
-static void EncodeFlush(Encoder *enc)
+static void encode_flush(Encoder *enc)
 {
 	if (enc->m_samplesPerBlock == enc->m_blockSamplesRemaining) {
 		// no data in the block
@@ -1091,7 +857,7 @@ static void EncodeFlush(Encoder *enc)
 	}
 
 	// Send it off for processing
-	ProcessBlock(enc);
+	process_block(enc);
 
 	/////////////
 	// NOTE: The Interplay one doesn't do this ... but it should as there
@@ -1107,77 +873,56 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 	Encoder enc;
 	memset(&enc, 0, sizeof(enc));
 
-	ReadSample_init(&enc, read, data);
+	int32_t startPos = ftell(out);
+	reader_init(&enc, read, data);
 	bits_init(&enc.m_bits, out);
-
 	enc.m_volume = volume;
-	if (!SetupEncoder(&enc, 0xF, std_lo_filter, std_hi_filter, levels, samples_per_subband)) {
-		DestroyEncoder(&enc);
+
+	if (!setup_encoder(&enc, FILTER_LEN, std_lo_filter, std_hi_filter, levels,
+			   samples_per_subband)) {
+		destroy_encoder(&enc);
 		return 0;
 	}
 
-	enc.m_bitBudget = (int32_t)((float)enc.m_samplesPerBlock * comp_ratio * 16.0f);
+	enc.m_bitBudget = (int32_t)(16.0 * enc.m_samplesPerBlock * comp_ratio);
 
-	int32_t startPos = ftell(out);
+	bits_write(&enc.m_bits, 0x032897, 24); // Signature
+	bits_write(&enc.m_bits, 1, 8);	       // Version
 
-	// Header
-	bits_write(&enc.m_bits, 0x97, 8);
-	bits_write(&enc.m_bits, 0x28, 8);
-	bits_write(&enc.m_bits, 0x03, 8);
-
-	// Version
-	bits_write(&enc.m_bits, 1, 8);
-
-	// Sample Count (Placeholder 32bits for now)
-	bits_write(&enc.m_bits, 0, 8);
-	bits_write(&enc.m_bits, 0, 8);
-	bits_write(&enc.m_bits, 0, 8);
-	bits_write(&enc.m_bits, 0, 8);
-
-	// Number of channels
+	bits_write(&enc.m_bits, enc.m_sampleCount, 32); // Placeholder
 	bits_write(&enc.m_bits, channels, 16);
-
-	// Sample Rate
 	bits_write(&enc.m_bits, sample_rate, 16);
-
-	// Levels
 	bits_write(&enc.m_bits, levels, 4);
-
-	// Samples per Sub-band (rows)
 	bits_write(&enc.m_bits, samples_per_subband, 12);
-
-	enc.m_bandWriteEnabled = 0;
 
 	// Prime the analysis filters with lead-in samples before emitting output.
 	int32_t primeCount = enc.m_primingLen;
+	enc.m_bandWriteEnabled = 0;
 	while (primeCount) {
-		EncodeSample(&enc);
+		encode_sample(&enc);
 		--primeCount;
 	}
-
 	enc.m_bandWriteEnabled = 1;
 
+	// Process samples
 	while (!enc.m_finishedReading) {
-		EncodeSample(&enc);
+		encode_sample(&enc);
 	}
 
 	// Flush the filters with the matching lead-out samples.
 	primeCount = enc.m_primingLen;
 	while (primeCount) {
-		EncodeSample(&enc);
+		encode_sample(&enc);
 		--primeCount;
 	}
 
-	EncodeFlush(&enc);
+	encode_flush(&enc);
 
 	// Go back and write the Sample Count out proper
 	fseek(out, startPos + 4, SEEK_SET);
-	putc((enc.m_sampleCount >> 0) & 0xFF, out);
-	putc((enc.m_sampleCount >> 8) & 0xFF, out);
-	putc((enc.m_sampleCount >> 16) & 0xFF, out);
-	putc((enc.m_sampleCount >> 24) & 0xFF, out);
+	bits_write(&enc.m_bits, enc.m_sampleCount, 32);
 	fseek(out, 0, SEEK_END);
 
-	DestroyEncoder(&enc);
+	destroy_encoder(&enc);
 	return 1;
 }
