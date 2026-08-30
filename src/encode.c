@@ -113,7 +113,7 @@ static void quant_init(Quantizer *q, int32_t step)
 	q->maxIdx = (int32_t)floorf(32767.0f / step);
 }
 
-static int32_t quant_value(Quantizer *q, int32_t value)
+static int32_t quant_value(Quantizer *q, float value)
 {
 	int32_t w = (int32_t)floorf((value + q->halfStep) / q->step);
 	if (w < q->minIdx) {
@@ -165,7 +165,7 @@ static const float std_hi_filter[] = {
 static inline int32_t codeword(Encoder *enc, int32_t row, int32_t col)
 {
 	float *coeffs = enc->m_levelSlots[enc->m_levels];
-	int32_t value = coeffs[(row * enc->m_numColumns) + col];
+	float value = coeffs[(row * enc->m_numColumns) + col];
 	return quant_value(&enc->m_quantizer, value);
 }
 
@@ -660,7 +660,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			int32_t costA = 0;
 			int32_t costB = 0;
 			for (int row = 0; row < enc->m_samples_per_subband; ++row) {
-				int32_t sample = coeffs[(row * enc->m_numColumns) + col];
+				float sample = coeffs[(row * enc->m_numColumns) + col];
 				int32_t idx = quant_value(&q, sample);
 				if (idx) {
 					if (tailBits != 1) {
@@ -679,7 +679,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 					costA += 2;
 					++costB;
 				} else {
-					int32_t sample =
+					float sample =
 					    coeffs[((row + 1) * enc->m_numColumns) + col];
 					int32_t next = quant_value(&q, sample);
 					if (next) {
