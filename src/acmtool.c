@@ -36,6 +36,7 @@ static const char *version = "acmtool - libacm version " LIBACM_VERSION;
 static int cf_force_chans = 0;
 static int cf_no_output = 0;
 static int cf_quiet = 0;
+static int cf_wavc = 0;
 
 static void show_header(const char *fn, ACMStream *acm)
 {
@@ -293,7 +294,7 @@ static void encode_file(const char *fn, const char *fn2)
 	int samples_per_subband = 2048 / (1 << levels);
 
 	int32_t res = acm_encode(read_from_wav, wav, out, wav->channels, wav->sample_rate, volume,
-				 levels, samples_per_subband, 1.0f / factor);
+				 levels, samples_per_subband, 1.0f / factor, cf_wavc);
 	if (!res)
 		fprintf(stderr, "%s: encoding failed\n", fn);
 	fflush(out);
@@ -372,8 +373,8 @@ static void usage(int err)
 	printf("Play:   acmtool -p [-q][-m|-s] acmfile [acmfile ...]\n");
 	printf("Decode: acmtool -d [-q][-m|-s] -o wavfile acmfile\n");
 	printf("        acmtool -d [-q][-m|-s] [-n] acmfile [acmfile ...]\n");
-	printf("Encode: acmtool -e [-q] -o acmfile wavfile\n");
-	printf("        acmtool -e [-q] wavfile [wavfile ...]\n");
+	printf("Encode: acmtool -e [-q][-w] -o acmfile wavfile\n");
+	printf("        acmtool -e [-q][-w] wavfile [wavfile ...]\n");
 	printf("Other:  acmtool -i acmfile [acmfile ...]\n");
 	printf("        acmtool -M|-S acmfile [acmfile ...]\n");
 	printf("Commands:\n");
@@ -386,6 +387,7 @@ static void usage(int err)
 	printf("Switches:\n");
 	printf("  -m     force mono\n");
 	printf("  -s     force stereo (default)\n");
+	printf("  -w     encode to WAVC format\n");
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
 	printf("  -o FN  output to file, can be used if single source file\n");
@@ -406,7 +408,7 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:")) != -1) {
+	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:w")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -443,6 +445,9 @@ int main(int argc, char *argv[])
 			break;
 		case 's':
 			cf_force_chans = 2;
+			break;
+		case 'w':
+			cf_wavc = 1;
 			break;
 		case 'n':
 			cf_no_output = 1;

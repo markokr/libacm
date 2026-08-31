@@ -28,6 +28,6 @@ typedef int32_t ReadSampleFunction(void *data);
 
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned channels,
 		   unsigned sample_rate, float volume, int levels, int samples_per_subband,
-		   float comp_ratio);
+		   float comp_ratio, int wavc);
 
 #endif

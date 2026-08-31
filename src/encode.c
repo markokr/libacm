@@ -98,28 +98,33 @@ static void bits_init(BitsEncoder *bits, FILE *out)
 	bits->count = 0;
 }
 
+static inline uint32_t fourcc(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+	return ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint8_t)(c) << 16) | ((uint8_t)(d) << 24));
+}
+
 typedef struct {
 	float step;
 	float halfStep;
-	int32_t minIdx;
-	int32_t maxIdx;
+	int32_t minWord;
+	int32_t maxWord;
 } Quantizer;
 
 static void quant_init(Quantizer *q, int32_t step)
 {
 	q->step = (float)step;
 	q->halfStep = step * 0.5f;
-	q->minIdx = (int32_t)ceilf(-32767.0f / step);
-	q->maxIdx = (int32_t)floorf(32767.0f / step);
+	q->minWord = (int32_t)ceilf(-32767.0f / step);
+	q->maxWord = (int32_t)floorf(32767.0f / step);
 }
 
 static int32_t quant_value(Quantizer *q, float value)
 {
 	int32_t w = (int32_t)floorf((value + q->halfStep) / q->step);
-	if (w < q->minIdx) {
-		w = q->minIdx;
-	} else if (w > q->maxIdx) {
-		w = q->maxIdx;
+	if (w < q->minWord) {
+		w = q->minWord;
+	} else if (w > q->maxWord) {
+		w = q->maxWord;
 	}
 	return w;
 }
@@ -433,7 +438,7 @@ static void pack_base11(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 enum PackerId {
-	Zero,
+	ZeroFill,
 	Linear3 = 3,
 	Linear16 = 16,
 
@@ -615,13 +620,11 @@ static void analyze(Encoder *enc)
 static int32_t estimate_bits(Encoder *enc, int32_t step)
 {
 	/* Uniform packers keyed by peak magnitude */
-	static const uint32_t flat_fmt[] = { Zero, Peak1Base3, Peak2Base5, Linear3, Peak5Base11 };
+	static const uint32_t flat_fmt[] = { ZeroFill, Peak1Base3, Peak2Base5, Linear3,
+					     Peak5Base11 };
 
 	int32_t quantPower = 3;
 	int32_t bits = 4 + 16 + enc->n_columns * 5; /* header bits */
-
-	float *coeffs = enc->level_slots[enc->n_levels];
-	float *colBase = enc->level_slots[enc->n_levels];
 
 	quant_init(&enc->quantizer, step);
 
@@ -650,7 +653,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 		int32_t cost;
 		if (absPeak == 0) {
 			cost = 0;
-			enc->m_pFormatIdPerColumn[col] = Zero;
+			enc->m_pFormatIdPerColumn[col] = ZeroFill;
 		} else if (absPeak <= 4) {
 			int32_t tailBits = 1;
 			int32_t runFmt = absPeak * 3 + Peak1ZZ - 3; /* Peak1Z,2,3,4*/
@@ -658,7 +661,6 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 				tailBits = ((absPeak - 2) < 1) ? 2 : 3;
 			}
 
-			/* costA vs costB: the two run-length orientations of the k-code */
 			int32_t costPaired = 0;
 			int32_t costUnpaired = 0;
 			for (int row = 0; row < enc->n_rows; row++) {
@@ -725,12 +727,11 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			}
 			enc->m_pFormatIdPerColumn[col] = Peak5Base11;
 		} else {
-			/* Fixed-width "linear": pick the bit width that spans the index range */
+			/* Pick bits for fixed-width "linear" */
 			int32_t mag = 0;
 			if (minWord < 0) {
 				mag = ~minWord;
 			}
-
 			if (maxWord > 0 && ((uint32_t)(mag) < (uint32_t)(maxWord))) {
 				mag = maxWord;
 			}
@@ -744,17 +745,15 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			if (quantPower < (nbits - 1)) {
 				quantPower = nbits - 1;
 			}
-			enc->m_pFormatIdPerColumn[col] = nbits; /* linear: format id == bit width */
+			enc->m_pFormatIdPerColumn[col] = nbits;
 			cost = nbits * enc->n_rows;
 		}
 
 		bits += cost;
-		++colBase;
 	}
 
 	enc->quant_power = quantPower;
 	enc->quant_step = step;
-	quant_init(&enc->quantizer, step);
 
 	return bits;
 }
@@ -850,7 +849,7 @@ static void encode_flush(Encoder *enc)
 		return;
 	}
 
-	// Zero out the remaining data in the block
+	// ZeroFill out the remaining data in the block
 	while (enc->m_blockSamplesRemaining != 0) {
 		*enc->m_pCurrBlockData++ = 0.0f;
 		--enc->m_blockSamplesRemaining;
@@ -868,12 +867,11 @@ static void encode_flush(Encoder *enc)
 
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned channels,
 		   unsigned sample_rate, float volume, int levels, int samples_per_subband,
-		   float comp_ratio)
+		   float comp_ratio, int wavc)
 {
 	Encoder enc;
 	memset(&enc, 0, sizeof(enc));
 
-	int32_t startPos = ftell(out);
 	reader_init(&enc, read, data);
 	bits_init(&enc.bits, out);
 	enc.volume = volume;
@@ -885,10 +883,21 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 
 	enc.bit_budget = (int32_t)(16.0 * enc.block_len * comp_ratio);
 
-	bits_write(&enc.bits, 0x032897, 24); // Signature
-	bits_write(&enc.bits, 1, 8);	     // Version
-
-	bits_write(&enc.bits, enc.sample_count, 32); // Placeholder
+	int32_t acm_start_ofs = ftell(out);
+	int32_t wavc_start_ofs = acm_start_ofs;
+	if (wavc) {
+		bits_write(&enc.bits, fourcc('W', 'A', 'V', 'C'), 32);
+		bits_write(&enc.bits, fourcc('V', '1', '.', '0'), 32);
+		bits_write(&enc.bits, 0, 32);	  // uncompr
+		bits_write(&enc.bits, 0, 32);	  // compr
+		bits_write(&enc.bits, 7 * 4, 32); // hdrlen
+		bits_write(&enc.bits, channels, 16);
+		bits_write(&enc.bits, 16, 16);
+		bits_write(&enc.bits, sample_rate, 32);
+		acm_start_ofs = ftell(out);
+	}
+	bits_write(&enc.bits, fourcc(0x97, 0x28, 0x03, 1), 32); // Signature + version
+	bits_write(&enc.bits, 0, 32);				// sample count
 	bits_write(&enc.bits, channels, 16);
 	bits_write(&enc.bits, sample_rate, 16);
 	bits_write(&enc.bits, levels, 4);
@@ -917,8 +926,14 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 
 	encode_flush(&enc);
 
-	// Go back and write the Sample Count out proper
-	fseek(out, startPos + 4, SEEK_SET);
+	// Go back and fill header
+	uint32_t end_ofs = ftell(out);
+	if (wavc) {
+		fseek(out, wavc_start_ofs + 8, SEEK_SET);
+		bits_write(&enc.bits, enc.sample_count * 2, 32);
+		bits_write(&enc.bits, end_ofs - acm_start_ofs, 32);
+	}
+	fseek(out, acm_start_ofs + 4, SEEK_SET);
 	bits_write(&enc.bits, enc.sample_count, 32);
 	fseek(out, 0, SEEK_END);
 
