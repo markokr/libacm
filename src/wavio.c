@@ -1,214 +1,219 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "wavio.h"
 
-#define FMT_SIZE 16
+#define WAVE_FORMAT_PCM 1
+#define BITS_PER_SAMPLE 16
 
-/* disallow >32bit file ofs */
-#define MAX_RIFF_SIZE (0xFFFFFFFF - 8)
-#define MAX_DATA_SIZE (MAX_RIFF_SIZE - 8 - FMT_SIZE - 8)
+#define FMT_SIZE 16
 
 struct Format {
 	uint16_t audio_format;
 	uint16_t nchannels;
 	uint32_t sample_rate;
 	uint32_t bytes_per_second;
-	uint16_t bytes_per_tick;
+	uint16_t block_align;
 	uint16_t bits_per_sample;
 };
 
-static bool read_tag(struct WavFile *wav, char tag[4])
+struct WavFile {
+	FILE *f;
+
+	struct Format fmt;
+
+	/* used when reading */
+	uint32_t data_remain;
+
+	/* used when writing */
+	uint32_t riff_size_ofs;
+	uint32_t data_size_ofs;
+};
+
+#define U16(a, b) (((uint16_t)(b) << 8) | (uint16_t)(a))
+#define U32(a, b, c, d) \
+	(((uint32_t)(d) << 24) | ((uint32_t)(c) << 16) | ((uint32_t)(b) << 8) | (uint32_t)(a))
+
+#define TAG_RIFF U32('R', 'I', 'F', 'F')
+#define TAG_WAVE U32('W', 'A', 'V', 'E')
+#define TAG_FMT U32('f', 'm', 't', ' ')
+#define TAG_DATA U32('d', 'a', 't', 'a')
+
+static bool read_tag(struct WavFile *wf, char tag[4])
 {
-	return fread(tag, 1, 4, wav->f) == 4;
+	return fread(tag, 1, 4, wf->f) == 4;
 }
 
-static bool read_u16(struct WavFile *wav, uint16_t *out)
+static bool read_u16(struct WavFile *wf, uint16_t *out)
 {
 	uint8_t buf[2];
-	if (fread(buf, 1, 2, wav->f) != 2)
+	if (fread(buf, 1, 2, wf->f) != 2)
 		return false;
-	*out = ((uint16_t)(buf[1]) << 8) | buf[0];
+	*out = U16(buf[0], buf[1]);
 	return true;
 }
 
-static bool read_s16(struct WavFile *wav, int16_t *out)
-{
-	uint16_t buf;
-	if (!read_u16(wav, &buf))
-		return false;
-	*out = (int16_t)buf;
-	return true;
-}
-
-static bool read_u32(struct WavFile *wav, uint32_t *out)
+static bool read_u32(struct WavFile *wf, uint32_t *out)
 {
 	uint8_t buf[4];
-	if (fread(buf, 1, 4, wav->f) != 4)
+	if (fread(buf, 1, 4, wf->f) != 4)
 		return false;
-	*out = ((uint32_t)buf[3] << 24) | ((uint32_t)buf[2] << 16) | ((uint32_t)buf[1] << 8)
-	       | (uint32_t)buf[0];
+	*out = U32(buf[0], buf[1], buf[2], buf[3]);
 	return true;
 }
 
-static bool read_header(struct WavFile *wav, char tag[4], uint32_t *size)
+static bool read_header(struct WavFile *wf, uint32_t *tag, uint32_t *size)
 {
-	if (!read_tag(wav, tag))
+	if (!read_u32(wf, tag))
 		return false;
-	return read_u32(wav, size);
+	return read_u32(wf, size);
 }
 
-static bool skip_block(struct WavFile *wav, size_t n)
+static bool skip_block(struct WavFile *wf, size_t n)
 {
 	if (n == 0)
 		return true;
-	return fseek(wav->f, n + (n & 1), SEEK_CUR) == 0;
+	return fseek(wf->f, n + (n & 1), SEEK_CUR) == 0;
 }
 
-static bool write_tag(struct WavFile *wav, char tag[4])
-{
-	return fwrite(tag, 1, 4, wav->f) == 4;
-}
-
-static bool write_u16(struct WavFile *wav, uint16_t val)
+static bool write_u16(struct WavFile *wf, uint16_t val)
 {
 	uint8_t buf[2] = { val & 255, val >> 8 };
-	return fwrite(buf, 1, 2, wav->f) == 2;
+	return fwrite(buf, 1, 2, wf->f) == 2;
 }
 
-static bool write_u32(struct WavFile *wav, uint32_t val)
+static bool write_u32(struct WavFile *wf, uint32_t val)
 {
 	uint8_t buf[4] = { val & 255, (val >> 8) & 255, (val >> 16) & 255, (val >> 24) & 255 };
-	return fwrite(buf, 1, 4, wav->f) == 4;
+	return fwrite(buf, 1, 4, wf->f) == 4;
 }
 
-static bool write_header(struct WavFile *wav, char tag[4], uint32_t size)
+static bool write_header(struct WavFile *wf, uint32_t tag, uint32_t size)
 {
-	if (!write_tag(wav, tag))
+	if (!write_u32(wf, tag))
 		return false;
-	return write_u32(wav, size);
+	return write_u32(wf, size);
+}
+
+static bool write_final_size(struct WavFile *wf, uint32_t ofs, uint32_t size)
+{
+	if (fseek(wf->f, ofs, SEEK_SET) != 0)
+		return false;
+	if (!write_u32(wf, size))
+		return false;
+	return true;
+}
+
+static bool read_format(struct WavFile *wf, uint32_t size)
+{
+	struct Format *fmt = &wf->fmt;
+
+	if (size < FMT_SIZE)
+		return false;
+	if (!read_u16(wf, &fmt->audio_format))
+		return false;
+	if (!read_u16(wf, &fmt->nchannels))
+		return false;
+	if (!read_u32(wf, &fmt->sample_rate))
+		return false;
+	if (!read_u32(wf, &fmt->bytes_per_second))
+		return false;
+	if (!read_u16(wf, &fmt->block_align))
+		return false;
+	if (!read_u16(wf, &fmt->bits_per_sample))
+		return false;
+	if (!skip_block(wf, size - FMT_SIZE))
+		return false;
+
+	if (fmt->audio_format != WAVE_FORMAT_PCM || fmt->bits_per_sample != BITS_PER_SAMPLE)
+		return false;
+	if (fmt->nchannels == 0 || fmt->sample_rate == 0)
+		return false;
+
+	return true;
+}
+
+static bool write_format(struct WavFile *wf)
+{
+	if (!write_header(wf, TAG_FMT, FMT_SIZE))
+		return false;
+	if (!write_u16(wf, wf->fmt.audio_format))
+		return false;
+	if (!write_u16(wf, wf->fmt.nchannels))
+		return false;
+	if (!write_u32(wf, wf->fmt.sample_rate))
+		return false;
+	if (!write_u32(wf, wf->fmt.bytes_per_second))
+		return false;
+	if (!write_u16(wf, wf->fmt.block_align))
+		return false;
+	if (!write_u16(wf, wf->fmt.bits_per_sample))
+		return false;
+	return true;
 }
 
 static void fill_format(struct Format *fmt, uint16_t nchan, uint32_t rate)
 {
-	fmt->audio_format = 1;
-	fmt->bits_per_sample = 16;
+	fmt->audio_format = WAVE_FORMAT_PCM;
+	fmt->bits_per_sample = BITS_PER_SAMPLE;
 	fmt->nchannels = nchan;
 	fmt->sample_rate = rate;
-	fmt->bytes_per_tick = fmt->bits_per_sample * fmt->nchannels / 8;
-	fmt->bytes_per_second = fmt->bytes_per_tick * fmt->sample_rate;
+	fmt->block_align = fmt->bits_per_sample * fmt->nchannels / 8;
+	fmt->bytes_per_second = fmt->block_align * fmt->sample_rate;
 }
 
-static bool read_format(struct WavFile *wav, uint32_t size)
+static bool setup_reader(struct WavFile *wf)
 {
-	struct Format fmt;
-
-	if (size < FMT_SIZE)
-		return false;
-	if (!read_u16(wav, &fmt.audio_format))
-		return false;
-	if (!read_u16(wav, &fmt.nchannels))
-		return false;
-	if (!read_u32(wav, &fmt.sample_rate))
-		return false;
-	if (!read_u32(wav, &fmt.bytes_per_second))
-		return false;
-	if (!read_u16(wav, &fmt.bytes_per_tick))
-		return false;
-	if (!read_u16(wav, &fmt.bits_per_sample))
-		return false;
-	if (!skip_block(wav, size - FMT_SIZE))
-		return false;
-
-	if (fmt.audio_format != 1 || fmt.bits_per_sample != 16)
-		return false;
-	if (fmt.nchannels == 0 || fmt.sample_rate == 0)
-		return false;
-
-	wav->channels = fmt.nchannels;
-	wav->sample_rate = fmt.sample_rate;
-
-	return true;
-}
-
-static bool write_format(struct WavFile *wav, const struct Format *fmt)
-{
-	if (!write_header(wav, "fmt ", FMT_SIZE))
-		return false;
-	if (!write_u16(wav, fmt->audio_format))
-		return false;
-	if (!write_u16(wav, fmt->nchannels))
-		return false;
-	if (!write_u32(wav, fmt->sample_rate))
-		return false;
-	if (!write_u32(wav, fmt->bytes_per_second))
-		return false;
-	if (!write_u16(wav, fmt->bytes_per_tick))
-		return false;
-	if (!write_u16(wav, fmt->bits_per_sample))
-		return false;
-	return true;
-}
-
-static bool setup_reader(struct WavFile *wav)
-{
-	char tag[4];
-
-	uint32_t riff_size, chunk_size;
+	uint32_t tag, riff_size, chunk_size;
 	bool have_fmt = false;
 
-	if (!read_header(wav, tag, &riff_size) || memcmp(tag, "RIFF", 4) != 0)
+	if (!read_header(wf, &tag, &riff_size))
 		return false;
-	if (riff_size > MAX_RIFF_SIZE)
+	if (tag != TAG_RIFF || riff_size < 4)
 		return false;
-	wav->riff_size_ofs = ftell(wav->f) - 4;
-	wav->end_ofs = wav->riff_size_ofs + riff_size + 4;
-	if (wav->end_ofs < riff_size)
+	if (!read_u32(wf, &tag) || tag != TAG_WAVE)
 		return false;
+	uint32_t riff_avail = riff_size - 4;
 
-	if (!read_tag(wav, tag) || memcmp(tag, "WAVE", 4) != 0)
-		return false;
-
-	while (ftell(wav->f) < wav->end_ofs) {
-		if (!read_header(wav, tag, &chunk_size))
+	while (riff_avail > 8) {
+		if (!read_header(wf, &tag, &chunk_size))
 			return false;
+		riff_avail -= 8;
 
-		if (memcmp(tag, "fmt ", 4) == 0) {
-			if (!read_format(wav, chunk_size))
+		if (chunk_size > riff_avail)
+			chunk_size = riff_avail;
+		riff_avail -= chunk_size;
+
+		if (tag == TAG_FMT) {
+			if (!read_format(wf, chunk_size))
 				return false;
 			have_fmt = true;
-		} else if (memcmp(tag, "data", 4) == 0) {
-			if (!have_fmt || chunk_size > MAX_DATA_SIZE)
+		} else if (tag == TAG_DATA) {
+			if (!have_fmt)
 				return false;
-			wav->read_ofs = ftell(wav->f);
-			wav->data_size = chunk_size;
-			wav->data_size_ofs = wav->read_ofs - 4;
-			uint32_t data_end_ofs = wav->read_ofs + wav->data_size;
-			if (data_end_ofs < wav->end_ofs)
-				wav->end_ofs = data_end_ofs;
-			if (wav->end_ofs < chunk_size)
-				return false;
+			wf->data_remain = chunk_size;
 			return true;
 		} else {
-			if (!skip_block(wav, chunk_size))
+			if (!skip_block(wf, chunk_size))
 				return false;
 		}
 	}
 	return false;
 }
 
-static bool setup_writer(struct WavFile *wav, const struct Format *fmt)
+static bool setup_writer(struct WavFile *wf)
 {
-	if (!write_header(wav, "RIFF", 0))
+	if (!write_header(wf, TAG_RIFF, 0))
 		return false;
-	wav->riff_size_ofs = ftell(wav->f) - 4;
-	if (!write_tag(wav, "WAVE"))
+	wf->riff_size_ofs = ftell(wf->f) - 4;
+	if (!write_u32(wf, TAG_WAVE))
 		return false;
-	if (!write_format(wav, fmt))
+	if (!write_format(wf))
 		return false;
-	if (!write_header(wav, "data", 0))
+	if (!write_header(wf, TAG_DATA, 0))
 		return false;
-	wav->data_size_ofs = ftell(wav->f) - 4;
+	wf->data_size_ofs = ftell(wf->f) - 4;
 	return true;
 }
 
@@ -218,78 +223,96 @@ static bool setup_writer(struct WavFile *wav, const struct Format *fmt)
 
 struct WavFile *wav_open_reader(const char *fn)
 {
-	struct WavFile *wav = calloc(1, sizeof(struct WavFile));
-	if (!wav)
+	struct WavFile *wf = calloc(1, sizeof(struct WavFile));
+	if (!wf)
 		return NULL;
-	wav->f = fopen(fn, "rb");
-	if (!wav->f) {
-		free(wav);
-		return NULL;
-	}
-	if (!setup_reader(wav)) {
-		wav_close(wav);
+	wf->f = fopen(fn, "rb");
+	if (!wf->f) {
+		free(wf);
 		return NULL;
 	}
-	return wav;
-}
-
-bool wav_read_sample(struct WavFile *wav, int16_t *sample)
-{
-	if (wav->read_ofs + 2 > wav->end_ofs)
-		return false;
-
-	if (!read_s16(wav, sample))
-		return false;
-	wav->read_ofs += 2;
-	return true;
+	if (!setup_reader(wf)) {
+		wav_close(wf);
+		return NULL;
+	}
+	return wf;
 }
 
 struct WavFile *wav_open_writer(const char *fn, uint16_t nchan, uint32_t rate)
 {
-	struct Format fmt;
-	struct WavFile *wav = calloc(1, sizeof(struct WavFile));
-	if (!wav)
+	struct WavFile *wf = calloc(1, sizeof(struct WavFile));
+	if (!wf)
 		return NULL;
-	wav->f = fopen(fn, "wb");
-	if (!wav->f) {
-		free(wav);
-		return NULL;
-	}
 
-	fill_format(&fmt, nchan, rate);
-
-	if (!setup_writer(wav, &fmt)) {
-		wav_close(wav);
+	wf->f = fopen(fn, "wb");
+	if (!wf->f) {
+		free(wf);
 		return NULL;
 	}
-	return wav;
+
+	fill_format(&wf->fmt, nchan, rate);
+
+	if (!setup_writer(wf)) {
+		wav_close(wf);
+		return NULL;
+	}
+	return wf;
 }
 
-bool wav_write_data(struct WavFile *wav, const void *data, size_t nbytes)
+uint16_t wav_nchannels(struct WavFile *wf)
 {
-	return fwrite(data, 1, nbytes, wav->f) == nbytes;
+	return wf->fmt.nchannels;
 }
 
-bool wav_write_finish(struct WavFile *wav)
+uint32_t wav_sample_rate(struct WavFile *wf)
 {
-	uint32_t data_size = ftell(wav->f) - wav->data_size_ofs - 4;
-	uint32_t riff_size = data_size + wav->data_size_ofs - wav->riff_size_ofs;
-	if (fseek(wav->f, wav->riff_size_ofs, SEEK_SET) != 0)
+	return wf->fmt.sample_rate;
+}
+
+size_t wav_read_data(struct WavFile *wf, void *data, size_t nbytes)
+{
+	size_t size = nbytes < wf->data_remain ? nbytes : wf->data_remain;
+	size_t res = fread(data, 1, size, wf->f);
+	wf->data_remain -= res;
+	return res;
+}
+
+bool wav_read_sample(struct WavFile *wf, int16_t *sample)
+{
+	uint8_t buf[2];
+	if (wav_read_data(wf, buf, 2) != 2)
 		return false;
-	if (!write_u32(wav, riff_size))
+	*sample = (int16_t)U16(buf[0], buf[1]);
+	return true;
+}
+
+bool wav_write_data(struct WavFile *wf, const void *data, size_t nbytes)
+{
+	return fwrite(data, 1, nbytes, wf->f) == nbytes;
+}
+
+bool wav_write_sample(struct WavFile *wf, int16_t sample)
+{
+	return write_u16(wf, sample);
+}
+
+bool wav_write_finish(struct WavFile *wf)
+{
+	uint32_t end_ofs = ftell(wf->f);
+	uint32_t data_size = end_ofs - wf->data_size_ofs - 4;
+	uint32_t riff_size = end_ofs - wf->riff_size_ofs - 4;
+	if (!write_final_size(wf, wf->riff_size_ofs, riff_size))
 		return false;
-	if (fseek(wav->f, wav->data_size_ofs, SEEK_SET) != 0)
+	if (!write_final_size(wf, wf->data_size_ofs, data_size))
 		return false;
-	if (!write_u32(wav, data_size))
-		return false;
-	if (fseek(wav->f, 0, SEEK_END) != 0)
+	if (fseek(wf->f, end_ofs, SEEK_SET) != 0)
 		return false;
 	return true;
 }
 
-void wav_close(struct WavFile *wav)
+void wav_close(struct WavFile *wf)
 {
-	if (wav->f)
-		fclose(wav->f);
-	free(wav);
+	if (wf->f)
+		fclose(wf->f);
+	free(wf);
 }

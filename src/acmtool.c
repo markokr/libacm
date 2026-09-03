@@ -288,13 +288,15 @@ static void encode_file(const char *fn, const char *fn2)
 		exit(1);
 	}
 
-	float factor = wav->sample_rate <= 22050 ? 4.0f : 8.0f;
+	uint32_t sample_rate = wav_sample_rate(wav);
+	uint16_t nchannels = wav_nchannels(wav);
+	float factor = sample_rate <= 22050 ? 4.0f : 8.0f;
 	float volume = 0.97;
 	int levels = 7;
 	int samples_per_subband = 2048 / (1 << levels);
 
-	int32_t res = acm_encode(read_from_wav, wav, out, wav->channels, wav->sample_rate, volume,
-				 levels, samples_per_subband, 1.0f / factor, cf_wavc);
+	int32_t res = acm_encode(read_from_wav, wav, out, nchannels, sample_rate, volume, levels,
+				 samples_per_subband, 1.0f / factor, cf_wavc);
 	if (!res)
 		fprintf(stderr, "%s: encoding failed\n", fn);
 	fflush(out);
