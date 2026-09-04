@@ -262,13 +262,10 @@ write_error:
 	exit(1);
 }
 
-static int32_t read_from_wav(void *wav)
+static int read_sample(void *data, int16_t *sample)
 {
-	int16_t sample;
-	if (wav_read_sample(wav, &sample)) {
-		return sample;
-	}
-	return ReadSampleEof;
+	bool ok = wav_read_sample(data, sample);
+	return ok ? 0 : -1;
 }
 
 static void encode_file(const char *fn, const char *fn2)
@@ -295,9 +292,9 @@ static void encode_file(const char *fn, const char *fn2)
 	int levels = 7;
 	int samples_per_subband = 2048 / (1 << levels);
 
-	int32_t res = acm_encode(read_from_wav, wav, out, nchannels, sample_rate, volume, levels,
-				 samples_per_subband, 1.0f / factor, cf_wavc);
-	if (!res)
+	int err = acm_encode(read_sample, wav, out, nchannels, sample_rate, volume, levels,
+			     samples_per_subband, 1.0f / factor, cf_wavc);
+	if (err != 0)
 		fprintf(stderr, "%s: encoding failed\n", fn);
 	fflush(out);
 	fclose(out);

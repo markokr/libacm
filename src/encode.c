@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "libacm.h"
 #include "encode.h"
 
 #define SAMPLE_WIDTH 16
@@ -64,7 +65,7 @@ typedef struct {
 	uint32_t count;
 } BitsEncoder;
 
-static void bits_write(BitsEncoder *bits, int32_t val, uint32_t n_bits)
+static int bits_write(BitsEncoder *bits, int32_t val, uint32_t n_bits)
 {
 	assert((n_bits + bits->count) <= 32);
 	bits->buf |= (uint32_t)(val) << bits->count;
@@ -72,18 +73,20 @@ static void bits_write(BitsEncoder *bits, int32_t val, uint32_t n_bits)
 
 	while (bits->count >= 8) {
 		uint8_t v = bits->buf & 0xFF;
-		fputc(v, bits->out);
-
+		if (fputc(v, bits->out) < 0)
+			return ACM_ERR_WRITE_ERR;
 		bits->buf >>= 8;
 		bits->count -= 8;
 	}
+	return 0;
 }
 
-static void bits_flush(BitsEncoder *bits)
+static int bits_flush(BitsEncoder *bits)
 {
 	while (bits->count >= 8) {
 		uint8_t v = bits->buf & 0xFF;
-		fputc(v, bits->out);
+		if (fputc(v, bits->out) < 0)
+			return ACM_ERR_WRITE_ERR;
 
 		bits->buf >>= 8;
 		bits->count -= 8;
@@ -91,10 +94,12 @@ static void bits_flush(BitsEncoder *bits)
 
 	if (bits->count > 0) {
 		uint8_t v = bits->buf & 0xFF;
-		fputc(v, bits->out);
+		if (fputc(v, bits->out) < 0)
+			return ACM_ERR_WRITE_ERR;
 		bits->count = 0;
 		bits->buf = 0;
 	}
+	return 0;
 }
 
 static void bits_init(BitsEncoder *bits, FILE *out)
@@ -173,79 +178,99 @@ typedef struct {
 	int32_t quant_step;		/* uniform quantizer step size (decoder: val) */
 	int32_t bit_budget;		/* target encoded size per block, in bits */
 	Quantizer quantizer;
+
+	long acm_start_ofs;
+	long wavc_start_ofs;
+	int wavc;
 } Encoder;
 
 /*
  * Subband encoders
  */
 
-typedef void (*PackFunc)(Encoder *enc, int32_t col, uint32_t formatId);
+typedef int (*PackFunc)(Encoder *enc, int32_t col, uint32_t formatId);
 
-static inline int32_t codeword(Encoder *enc, int32_t row, int32_t col)
+static int32_t codeword(Encoder *enc, int32_t row, int32_t col)
 {
 	float *values = enc->level_slots[enc->n_levels];
 	float value = values[(row * enc->n_columns) + col];
 	return quant_value(&enc->quantizer, value);
 }
 
-static inline int last_row(Encoder *enc, int32_t row)
+static int last_row(Encoder *enc, int32_t row)
 {
 	return row == enc->n_rows - 1;
 }
 
-static void pack_zero(Encoder *enc, int32_t col, uint32_t formatId)
+static int zero_follows(Encoder *enc, int32_t row, int32_t col)
 {
+	return !last_row(enc, row) && codeword(enc, row + 1, col) == 0;
 }
 
-static void pack_binary(Encoder *enc, int32_t col, uint32_t formatId)
+#define OUTPUT_BITS(enc, value, nbits) \
+	do { \
+		int err = bits_write(&((enc)->bits), value, nbits); \
+		if (err) \
+			return err; \
+	} while (0)
+
+static int pack_zero(Encoder *enc, int32_t col, uint32_t formatId)
+{
+	return 0;
+}
+
+static int pack_binary(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	int32_t mid = (1 << (formatId - 1));
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
-		bits_write(&enc->bits, w + mid, formatId);
+		OUTPUT_BITS(enc, w + mid, formatId);
 	}
+	return 0;
 }
 
 /* Words {-1..1}, assume zero pair */
-static void pack_peak1_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
 				/* 0 */
-				bits_write(&enc->bits, 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->bits, 1, 2);
+				OUTPUT_BITS(enc, 1, 2);
 			}
 		} else {
 			/* 1, 1, ? */
-			bits_write(&enc->bits, 3, 2);
-			bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
+			OUTPUT_BITS(enc, 3, 2);
+			OUTPUT_BITS(enc, (w == 1) ? 1 : 0, 1);
 		}
 	}
+	return 0;
 }
 
 /* Words {-1..1}, assume zero */
-static void pack_peak1_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->bits, 0, 1);
+			OUTPUT_BITS(enc, 0, 1);
 		} else {
 			/* 1, ? */
-			bits_write(&enc->bits, 1, 1);
-			bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
+			OUTPUT_BITS(enc, 1, 1);
+			OUTPUT_BITS(enc, (w == 1) ? 1 : 0, 1);
 		}
 	}
+	return 0;
 }
 
 /* Base-3 packing: 3 indices in {-1,0,1} per 5-bit word (decoder: f_t15). */
-static void pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -257,61 +282,64 @@ static void pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 1) * 9;
 
-		bits_write(&enc->bits, packed, 5);
+		OUTPUT_BITS(enc, packed, 5);
 	}
+	return 0;
 }
 
 /* Words {-2..2}, assume zero pair */
-static void pack_peak2_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
-			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+			if (zero_follows(enc, row, col)) {
 				/* 0 */
-				bits_write(&enc->bits, 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->bits, 1, 2);
+				OUTPUT_BITS(enc, 1, 2);
 			}
 		} else {
 			/* 1, 1, ?, ? */
-			bits_write(&enc->bits, 3, 2);
+			OUTPUT_BITS(enc, 3, 2);
 			if (w < 0) {
 				w += 2;
 			} else {
 				w += 1;
 			}
-			bits_write(&enc->bits, w, 2);
+			OUTPUT_BITS(enc, w, 2);
 		}
 	}
+	return 0;
 }
 
 /* Words {-2..2}, assume zero */
-static void pack_peak2_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->bits, 0, 1);
+			OUTPUT_BITS(enc, 0, 1);
 		} else {
 			/* 1, ?, ? */
-			bits_write(&enc->bits, 1, 1);
+			OUTPUT_BITS(enc, 1, 1);
 			if (w < 0) {
 				w += 2;
 			} else {
 				w += 1;
 			}
-			bits_write(&enc->bits, w, 2);
+			OUTPUT_BITS(enc, w, 2);
 		}
 	}
+	return 0;
 }
 
 /* Base-5 packing: 3 words in {-2..2} per 7-bits */
-static void pack_peak2_base5(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_base5(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -323,117 +351,122 @@ static void pack_peak2_base5(Encoder *enc, int32_t col, uint32_t formatId)
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 2) * 25;
 
-		bits_write(&enc->bits, packed, 7);
+		OUTPUT_BITS(enc, packed, 7);
 	}
+	return 0;
 }
 
 /* Words {-3..3}, assume zero pair */
-static void pack_peak3_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak3_zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
-			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+			if (zero_follows(enc, row, col)) {
 				/* 0 */
-				bits_write(&enc->bits, 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->bits, 1, 2);
+				OUTPUT_BITS(enc, 1, 2);
 			}
 		} else {
 			/* 1, 1 */
-			bits_write(&enc->bits, 3, 2);
+			OUTPUT_BITS(enc, 3, 2);
 			if (w != -1 && w != 1) {
 				/* 1, ?, ? */
-				bits_write(&enc->bits, 1, 1);
+				OUTPUT_BITS(enc, 1, 1);
 				if (w < 0) {
 					w += 3;
 				}
-				bits_write(&enc->bits, w, 2);
+				OUTPUT_BITS(enc, w, 2);
 			} else {
 				/* 0, ? */
-				bits_write(&enc->bits, 0, 1);
-				bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
+				OUTPUT_BITS(enc, (w == 1) ? 1 : 0, 1);
 			}
 		}
 	}
+	return 0;
 }
 
 /* Words in {-3..3}, assume zero */
-static void pack_peak3_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak3_z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
-			bits_write(&enc->bits, 0, 1);
+			OUTPUT_BITS(enc, 0, 1);
 		} else {
-			bits_write(&enc->bits, 1, 1);
+			OUTPUT_BITS(enc, 1, 1);
 			if (w != -1 && w != 1) {
 				/* 1, 1, ?, ? */
-				bits_write(&enc->bits, 1, 1);
+				OUTPUT_BITS(enc, 1, 1);
 				if (w < 0) {
 					w += 3;
 				}
-				bits_write(&enc->bits, w, 2);
+				OUTPUT_BITS(enc, w, 2);
 			} else {
 				/* 1, 0, ?, ? */
-				bits_write(&enc->bits, 0, 1);
-				bits_write(&enc->bits, (w == 1) ? 1 : 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
+				OUTPUT_BITS(enc, (w == 1) ? 1 : 0, 1);
 			}
 		}
 	}
+	return 0;
 }
 
 /* Words in {-4..4}, assume zero pair */
-static void pack_peak4_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak4_zz(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
-			if (!last_row(enc, row) && codeword(enc, row + 1, col) == 0) {
+			if (zero_follows(enc, row, col)) {
 				/* 0 */
-				bits_write(&enc->bits, 0, 1);
+				OUTPUT_BITS(enc, 0, 1);
 				row++;
 			} else {
 				/* 1, 0 */
-				bits_write(&enc->bits, 1, 2);
+				OUTPUT_BITS(enc, 1, 2);
 			}
 		} else {
-			bits_write(&enc->bits, 3, 2);
+			OUTPUT_BITS(enc, 3, 2);
 			if (w >= 0) {
 				w += 3;
 			} else {
 				w += 4;
 			}
-			bits_write(&enc->bits, w, 3);
+			OUTPUT_BITS(enc, w, 3);
 		}
 	}
+	return 0;
 }
 
 /* Words {-4..4}, assume zero */
-static void pack_peak4_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak4_z(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
-			bits_write(&enc->bits, 0, 1);
+			OUTPUT_BITS(enc, 0, 1);
 		} else {
-			bits_write(&enc->bits, 1, 1);
+			OUTPUT_BITS(enc, 1, 1);
 			if (w < 0) {
 				w += 4;
 			} else {
 				w += 3;
 			}
-			bits_write(&enc->bits, w, 3);
+			OUTPUT_BITS(enc, w, 3);
 		}
 	}
+	return 0;
 }
 
 /* Base-11 packing: 2 words in {-5..5} per 7-bits */
-static void pack_peak5_base11(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak5_base11(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -442,8 +475,9 @@ static void pack_peak5_base11(Encoder *enc, int32_t col, uint32_t formatId)
 		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
 		packed += (w + 5) * 11;
 
-		bits_write(&enc->bits, packed, 7);
+		OUTPUT_BITS(enc, packed, 7);
 	}
+	return 0;
 }
 
 enum PackerId {
@@ -660,16 +694,19 @@ static void choose_quant_step(Encoder *enc)
 	}
 }
 
-static void write_bands(Encoder *enc)
+static int write_bands(Encoder *enc)
 {
-	bits_write(&enc->bits, enc->quant_power, 4);
-	bits_write(&enc->bits, enc->quant_step, 16);
+	OUTPUT_BITS(enc, enc->quant_power, 4);
+	OUTPUT_BITS(enc, enc->quant_step, 16);
 
 	for (int col = 0; col < enc->n_columns; col++) {
 		const uint32_t fmt = enc->m_pFormatIdPerColumn[col];
-		bits_write(&enc->bits, fmt, 5);
-		packer_list[fmt](enc, col, fmt);
+		OUTPUT_BITS(enc, fmt, 5);
+		int err = packer_list[fmt](enc, col, fmt);
+		if (err)
+			return err;
 	}
+	return 0;
 }
 
 /*
@@ -764,30 +801,38 @@ static void shift_overlap(Encoder *enc)
 	}
 }
 
-static void process_block(Encoder *enc)
+static int process_block(Encoder *enc)
 {
+	int err;
+
 	transform(enc);
 
 	if (enc->m_bandWriteEnabled) {
 		choose_quant_step(enc);
-		write_bands(enc);
+
+		err = write_bands(enc);
+		if (err)
+			return err;
 	}
 
 	shift_overlap(enc);
 
 	enc->block_unset += enc->block_len;
 	enc->m_pCurrBlockData -= enc->block_len;
+	return 0;
 }
 
-static void encode_sample(Encoder *enc)
+static int encode_sample(Encoder *enc)
 {
-	int32_t sample = 0;
+	int16_t sample = 0;
 
 	if (!enc->reader_eof) {
-		sample = (*enc->reader_func)(enc->reader_arg);
-		if (sample == (int32_t)ReadSampleEof) {
+		int err = enc->reader_func(enc->reader_arg, &sample);
+		if (err == -1) {
 			enc->reader_eof = 1;
-			return;
+			return 0;
+		} else if (err != 0) {
+			return err;
 		}
 		enc->sample_count++;
 	}
@@ -795,22 +840,54 @@ static void encode_sample(Encoder *enc)
 	*enc->m_pCurrBlockData++ = enc->volume * (float)sample;
 
 	if (--enc->block_unset == 0) {
-		process_block(enc);
+		return process_block(enc);
 	}
+	return 0;
 }
 
-static void encode_flush(Encoder *enc)
+static int encode_flush(Encoder *enc)
 {
 	// zero-fill partial block
 	if (enc->block_unset < enc->block_len) {
 		for (; enc->block_unset > 0; enc->block_unset--) {
 			*enc->m_pCurrBlockData++ = 0.0f;
 		}
-		process_block(enc);
+		int err = process_block(enc);
+		if (err)
+			return err;
 	}
 
 	// NOTE: The Interplay one doesn't do this ...
-	bits_flush(&enc->bits);
+	return bits_flush(&enc->bits);
+}
+
+static int process_audio(Encoder *enc)
+{
+	int err;
+
+	// Prime the analysis filters with lead-in samples before emitting output.
+	enc->m_bandWriteEnabled = 0;
+	for (int i = 0; i < enc->priming_len; i++) {
+		err = encode_sample(enc);
+		if (err)
+			return err;
+	}
+	enc->m_bandWriteEnabled = 1;
+
+	// Process samples
+	while (!enc->reader_eof) {
+		err = encode_sample(enc);
+		if (err)
+			return err;
+	}
+
+	// Flush the filters with the matching lead-out samples.
+	for (int i = 0; i < enc->priming_len; i++) {
+		err = encode_sample(enc);
+		if (err)
+			return err;
+	}
+	return encode_flush(enc);
 }
 
 static void reader_init(Encoder *enc, ReadSampleFunction *read, void *arg)
@@ -829,9 +906,9 @@ static int setup_encoder(Encoder *enc, int filterLen, int8_t levels, int samples
 
 	int halfFilter = (((filterLen < -1) ? (filterLen + 1) : (filterLen)) + 1) >> 1;
 	enc->priming_len = halfFilter * (enc->n_columns - 1);
-	enc->level_slots = (float **)malloc(sizeof(float *) * (levels + 1));
+	enc->level_slots = (float **)calloc(levels + 1, sizeof(float *));
 	if (enc->level_slots == NULL)
-		return 0;
+		return ACM_ERR_OTHER;
 
 	if (levels >= 0) {
 		for (int8_t i = 0; i <= levels; ++i) {
@@ -840,19 +917,16 @@ static int setup_encoder(Encoder *enc, int filterLen, int8_t levels, int samples
 				overlap = (filterLen - 1) << i;
 			}
 
-			float *buf = (float *)malloc((enc->block_len + overlap) * sizeof(float));
-			enc->level_slots[i] = buf;
+			float *buf = (float *)calloc(enc->block_len + overlap, sizeof(float));
 			if (buf == NULL)
-				return 0;
-
-			memset(buf, 0, (enc->block_len + overlap) * sizeof(float));
-			enc->level_slots[i] += overlap;
+				return ACM_ERR_OTHER;
+			enc->level_slots[i] = buf + overlap;
 		}
 	}
 
-	enc->m_pFormatIdPerColumn = (uint32_t *)malloc(enc->n_columns * sizeof(uint32_t));
+	enc->m_pFormatIdPerColumn = (uint32_t *)calloc(enc->n_columns, sizeof(uint32_t));
 	if (enc->m_pFormatIdPerColumn == NULL)
-		return 0;
+		return ACM_ERR_OTHER;
 
 	enc->sample_count = 0;
 
@@ -862,7 +936,7 @@ static int setup_encoder(Encoder *enc, int filterLen, int8_t levels, int samples
 	enc->block_unset = enc->block_len - startOffset;
 	enc->m_bandWriteEnabled = 0;
 	enc->reader_eof = 0;
-	return 1;
+	return 0;
 }
 
 static void destroy_encoder(Encoder *enc)
@@ -886,6 +960,64 @@ static void destroy_encoder(Encoder *enc)
 	}
 }
 
+static int write_header(Encoder *enc, unsigned channels, unsigned sample_rate)
+{
+	FILE *out = enc->bits.out;
+
+	if (enc->wavc) {
+		enc->wavc_start_ofs = ftell(out);
+		if (enc->wavc_start_ofs == -1)
+			return ACM_ERR_NOT_SEEKABLE;
+		OUTPUT_BITS(enc, fourcc('W', 'A', 'V', 'C'), 32);
+		OUTPUT_BITS(enc, fourcc('V', '1', '.', '0'), 32);
+		OUTPUT_BITS(enc, 0, 32);     // uncompr
+		OUTPUT_BITS(enc, 0, 32);     // compr
+		OUTPUT_BITS(enc, 7 * 4, 32); // hdrlen
+		OUTPUT_BITS(enc, channels, 16);
+		OUTPUT_BITS(enc, SAMPLE_WIDTH, 16);
+		OUTPUT_BITS(enc, sample_rate, 32);
+	}
+
+	enc->acm_start_ofs = ftell(out);
+	if (enc->acm_start_ofs == -1)
+		return ACM_ERR_NOT_SEEKABLE;
+	OUTPUT_BITS(enc, fourcc(0x97, 0x28, 0x03, 1), 32); // Signature + version
+	OUTPUT_BITS(enc, 0, 32);			   // sample count
+	OUTPUT_BITS(enc, channels, 16);
+	OUTPUT_BITS(enc, sample_rate, 16);
+	OUTPUT_BITS(enc, enc->n_levels, 4);
+	OUTPUT_BITS(enc, enc->n_rows, 12);
+
+	return 0;
+}
+
+static int fix_header(Encoder *enc)
+{
+	int err;
+	FILE *out = enc->bits.out;
+
+	long end_ofs = ftell(out);
+
+	if (enc->wavc) {
+		err = fseek(out, enc->wavc_start_ofs + 8, SEEK_SET);
+		if (err)
+			return ACM_ERR_OTHER;
+		OUTPUT_BITS(enc, enc->sample_count * SAMPLE_WIDTH / 8, 32);
+		OUTPUT_BITS(enc, end_ofs - enc->acm_start_ofs, 32);
+	}
+
+	err = fseek(out, enc->acm_start_ofs + 4, SEEK_SET);
+	if (err)
+		return ACM_ERR_OTHER;
+	OUTPUT_BITS(enc, enc->sample_count, 32);
+
+	err = fseek(out, end_ofs, SEEK_SET);
+	if (err)
+		return ACM_ERR_OTHER;
+
+	return 0;
+}
+
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned channels,
 		   unsigned sample_rate, float volume, int levels, int samples_per_subband,
 		   float comp_ratio, int wavc)
@@ -896,63 +1028,25 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned cha
 	reader_init(&enc, read, data);
 	bits_init(&enc.bits, out);
 
-	if (!setup_encoder(&enc, FILTER_LEN, levels, samples_per_subband)) {
-		destroy_encoder(&enc);
-		return 0;
-	}
+	int err = setup_encoder(&enc, FILTER_LEN, levels, samples_per_subband);
+	if (err)
+		goto error;
 
 	enc.volume = volume;
 	enc.bit_budget = (int32_t)(SAMPLE_WIDTH * enc.block_len * comp_ratio);
+	enc.wavc = wavc;
 
-	long acm_start_ofs = ftell(out);
-	long wavc_start_ofs = acm_start_ofs;
-	if (wavc) {
-		bits_write(&enc.bits, fourcc('W', 'A', 'V', 'C'), 32);
-		bits_write(&enc.bits, fourcc('V', '1', '.', '0'), 32);
-		bits_write(&enc.bits, 0, 32);	  // uncompr
-		bits_write(&enc.bits, 0, 32);	  // compr
-		bits_write(&enc.bits, 7 * 4, 32); // hdrlen
-		bits_write(&enc.bits, channels, 16);
-		bits_write(&enc.bits, SAMPLE_WIDTH, 16);
-		bits_write(&enc.bits, sample_rate, 32);
-		acm_start_ofs = ftell(out);
-	}
-	bits_write(&enc.bits, fourcc(0x97, 0x28, 0x03, 1), 32); // Signature + version
-	bits_write(&enc.bits, 0, 32);				// sample count
-	bits_write(&enc.bits, channels, 16);
-	bits_write(&enc.bits, sample_rate, 16);
-	bits_write(&enc.bits, levels, 4);
-	bits_write(&enc.bits, samples_per_subband, 12);
+	err = write_header(&enc, channels, sample_rate);
+	if (err)
+		goto error;
 
-	// Prime the analysis filters with lead-in samples before emitting output.
-	enc.m_bandWriteEnabled = 0;
-	for (int i = 0; i < enc.priming_len; i++) {
-		encode_sample(&enc);
-	}
-	enc.m_bandWriteEnabled = 1;
+	err = process_audio(&enc);
+	if (err)
+		goto error;
 
-	// Process samples
-	while (!enc.reader_eof) {
-		encode_sample(&enc);
-	}
+	err = fix_header(&enc);
 
-	// Flush the filters with the matching lead-out samples.
-	for (int i = 0; i < enc.priming_len; i++) {
-		encode_sample(&enc);
-	}
-	encode_flush(&enc);
-
-	// Go back and fill header
-	long end_ofs = ftell(out);
-	if (wavc) {
-		fseek(out, wavc_start_ofs + 8, SEEK_SET);
-		bits_write(&enc.bits, enc.sample_count * SAMPLE_WIDTH / 8, 32);
-		bits_write(&enc.bits, end_ofs - acm_start_ofs, 32);
-	}
-	fseek(out, acm_start_ofs + 4, SEEK_SET);
-	bits_write(&enc.bits, enc.sample_count, 32);
-	fseek(out, end_ofs, SEEK_SET);
-
+error:
 	destroy_encoder(&enc);
-	return 1;
+	return err;
 }

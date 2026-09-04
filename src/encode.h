@@ -22,9 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-typedef int32_t ReadSampleFunction(void *data);
-
-#define ReadSampleEof 0x80000000
+typedef int ReadSampleFunction(void *data, int16_t *sample);
 
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, unsigned channels,
 		   unsigned sample_rate, float volume, int levels, int samples_per_subband,
