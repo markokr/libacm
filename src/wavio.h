@@ -2,7 +2,7 @@
 #define _WAVIO_H_
 
 #include <stdint.h>
-#include <stdbool.h>
+#include <sys/types.h>
 
 struct WavFile;
 
@@ -12,13 +12,13 @@ struct WavFile *wav_open_writer(const char *fn, uint16_t nchan, uint32_t rate);
 uint16_t wav_nchannels(struct WavFile *wf);
 uint32_t wav_sample_rate(struct WavFile *wf);
 
-size_t wav_read_data(struct WavFile *wf, void *data, size_t nbytes);
-bool wav_read_sample(struct WavFile *wf, int16_t *sample);
+ssize_t wav_read_data(struct WavFile *wf, void *data, size_t nbytes);
+int wav_read_sample(struct WavFile *wf, int16_t *sample);
 
-bool wav_write_data(struct WavFile *wf, const void *data, size_t nbytes);
-bool wav_write_sample(struct WavFile *wf, int16_t sample);
+int wav_write_data(struct WavFile *wf, const void *data, size_t nbytes);
+int wav_write_sample(struct WavFile *wf, int16_t sample);
 
-bool wav_write_finish(struct WavFile *wf);
+int wav_write_finish(struct WavFile *wf);
 
 void wav_close(struct WavFile *wf);
 

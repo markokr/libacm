@@ -185,10 +185,10 @@ static char *makefn(const char *fn, const char *ext)
 	return dstfn;
 }
 
-static bool output_data(struct WavFile *wav, const void *data, size_t size)
+static int output_data(struct WavFile *wav, const void *data, size_t size)
 {
 	if (cf_no_output)
-		return true;
+		return 0;
 	return wav_write_data(wav, data, size);
 }
 
@@ -223,7 +223,7 @@ static void decode_file(const char *fn, const char *fn2)
 		if (res == 0)
 			break;
 		if (res > 0) {
-			if (!output_data(wav, buf, res))
+			if (output_data(wav, buf, res))
 				goto write_error;
 			bytes_done += res;
 		} else {
@@ -241,14 +241,14 @@ static void decode_file(const char *fn, const char *fn2)
 		} else {
 			bs = buflen;
 		}
-		if (!output_data(wav, buf, bs)) {
+		if (output_data(wav, buf, bs)) {
 			break;
 		}
 		bytes_done += bs;
 	}
 	acm_close(acm);
 	if (wav) {
-		if (!wav_write_finish(wav))
+		if (wav_write_finish(wav))
 			goto write_error;
 		wav_close(wav);
 	}
@@ -264,8 +264,7 @@ write_error:
 
 static int read_sample(void *data, int16_t *sample)
 {
-	bool ok = wav_read_sample(data, sample);
-	return ok ? 0 : -1;
+	return wav_read_sample(data, sample);
 }
 
 static void encode_file(const char *fn, const char *fn2)
