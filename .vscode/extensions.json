@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "github.vscode-github-actions",
+    "editorconfig.editorconfig",
+    "ms-vscode.cpptools",
+    "ms-vscode.makefile-tools"
+  ]
+}
