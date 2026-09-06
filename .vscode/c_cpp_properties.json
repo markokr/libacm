@@ -1,13 +1,11 @@
 {
     "configurations": [
         {
-            "name": "Linux",
-            "includePath": [],
+            "name": "C11",
             "defines": ["HAVE_CONFIG_H=1"],
-            //"compilerPath": "/usr/bin/clang",
-            "cStandard": "c17",
-            "cppStandard": "c++17",
-            //"intelliSenseMode": "linux-clang-x64",
+            "includePath": ["${workspaceFolder}"],
+            "cStandard": "c11",
+            "cppStandard": "c++11",
             "configurationProvider": "ms-vscode.makefile-tools"
         }
     ],
