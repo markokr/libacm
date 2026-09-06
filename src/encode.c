@@ -60,13 +60,14 @@
 #define MAX_COLUMNS (1 << MAX_LEVELS)
 #define MIN_ROWS 1
 #define MAX_ROWS (1 << 12)
+#define MAX_BLOCK_LEN (1024 * 1024)
 
 // A:8/16 -> 4096
 // A:7/16 -> 2048
 // A:6/8 -> 512
 #define VALID(levels, rows) \
 	((levels) >= MIN_LEVELS && (levels) <= MAX_LEVELS && (rows) >= MIN_ROWS \
-	 && (rows) <= MAX_ROWS)
+	 && (rows) <= MAX_ROWS && (1 << (levels)) * (rows) <= (MAX_BLOCK_LEN))
 
 /*
  * Bitstream writer
@@ -312,7 +313,7 @@ static int pack_peak1_z(Encoder *enc, int32_t col, uint32_t formatId)
 	return 0;
 }
 
-/* Base-3 packing: 3 indices in {-1,0,1} per 5-bit word (decoder: f_t15). */
+/* 3 words of {-1,0,1} per 5-bits */
 static int pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -484,7 +485,7 @@ static int pack_peak4_z(Encoder *enc, int32_t col, uint32_t formatId)
 	return 0;
 }
 
-/* Base-11 packing: 2 words in {-5..5} per 7-bits */
+/* 2 words in {-5..5} per 7-bits */
 static int pack_peak5_base11(Encoder *enc, int32_t col, uint32_t formatId)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
@@ -665,7 +666,7 @@ static void choose_quant_step(Encoder *enc)
 {
 	int32_t lo = 1, hi = 0x7FFF;
 	do {
-		int32_t mid = (lo + hi) >> 1;
+		int32_t mid = (lo + hi) / 2;
 		int32_t bits = estimate_bits(enc, mid);
 		if (bits > enc->bit_budget) {
 			lo = mid + 1;
@@ -716,29 +717,26 @@ static const float std_hi_filter[] = {
  * (wavelet) filter, giving a critically-sampled low/high split.  Samples of
  * this subband are interleaved in the buffer with distance `stride`.
  */
-static void transform_subband(Encoder *enc, float *src, float *dst, int32_t stride, int32_t count)
+static void transform_column(Encoder *enc, const float *src, float *dst, int cols, int rows)
 {
-	if (count <= 0)
-		return;
-
-	const int32_t halfTaps = (enc->filter_len - 1) >> 1; /* taps on each side of center */
-	const int32_t reach = halfTaps * stride;	     /* offset to the symmetric neighbor */
+	int halfTaps = (enc->filter_len - 1) / 2; /* taps on each side of center */
+	int reach = halfTaps * cols;		  /* offset to the symmetric neighbor */
 	src -= reach;
 
-	for (int i = 0; i < count; i++) {
-		const float *coef = (i & 1) ? std_hi_filter : std_lo_filter;
-		float *left = src - reach;
-		float *right = src + reach;
+	for (int row = 0; row < rows; row++) {
+		const float *coef = (row & 1) ? std_hi_filter : std_lo_filter;
+		const float *left = src - reach;
+		const float *right = src + reach;
 		float acc = 0.0f;
-		for (int32_t j = halfTaps; j > 0; j--) {
+		for (int j = halfTaps; j > 0; j--) {
 			acc += (*right + *left) * *coef++;
-			left += stride;
-			right -= stride;
+			left += cols;
+			right -= cols;
 		}
-
 		*dst = (*left * *coef) + acc;
-		dst += stride;
-		src += stride;
+
+		dst += cols;
+		src += cols;
 	}
 }
 
@@ -749,21 +747,18 @@ static void transform_subband(Encoder *enc, float *src, float *dst, int32_t stri
  */
 static void transform(Encoder *enc)
 {
-	if (enc->n_levels <= 0)
-		return;
-
-	int32_t stride = 1;		/* subbands produced so far == interleave stride */
-	int32_t count = enc->block_len; /* samples per subband at this level */
+	int32_t cols = 1;
+	int32_t rows = enc->block_len; /* samples per subband at this level */
 	for (int i = 0; i < enc->n_levels; i++) {
 		float *src = enc->level_slots[i];
 		float *dst = enc->level_slots[i + 1];
 
-		for (int band = 0; band < stride; band++) {
-			transform_subband(enc, src++, dst++, stride, count);
+		for (int col = 0; col < cols; col++) {
+			transform_column(enc, src + col, dst + col, cols, rows);
 		}
 
-		stride += stride;
-		count >>= 1;
+		cols *= 2;
+		rows /= 2;
 	}
 }
 
@@ -821,7 +816,6 @@ static int encode_sample(Encoder *enc)
 	}
 
 	enc->level_slots[0][enc->input_pos++] = enc->volume * (float)sample;
-
 	if (enc->input_pos == enc->block_len) {
 		return process_block(enc);
 	}

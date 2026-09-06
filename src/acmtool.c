@@ -37,6 +37,9 @@ static int cf_force_chans = 0;
 static int cf_no_output = 0;
 static int cf_quiet = 0;
 static int cf_wavc = 0;
+static const char *cf_encoder_bitrate = NULL;
+static const char *cf_encoder_transform = NULL;
+static const char *cf_encoder_volume = NULL;
 
 static void show_header(const char *fn, ACMStream *acm)
 {
@@ -262,9 +265,9 @@ write_error:
 	exit(1);
 }
 
-static int read_sample(void *data, int16_t *sample)
+static int read_sample(void *wf, int16_t *sample)
 {
-	return wav_read_sample(data, sample);
+	return wav_read_sample(wf, sample);
 }
 
 static void encode_file(const char *fn, const char *fn2)
@@ -278,23 +281,46 @@ static void encode_file(const char *fn, const char *fn2)
 		exit(1);
 	}
 
+	uint32_t sample_rate = wav_sample_rate(wav);
+	uint16_t nchannels = wav_nchannels(wav);
+
+	float factor = sample_rate <= 22050 ? 4.0f : 8.0f;
+	if (cf_encoder_bitrate) {
+		long rate = strtol(cf_encoder_bitrate, NULL, 10);
+		if (rate > 0) {
+			float goal = rate * 1000;
+			float raw = nchannels * sample_rate * 2 * 8;
+			factor = (goal < raw) ? raw / goal : 1.0f;
+		}
+	}
+
+	float volume = 0.97;
+	if (cf_encoder_volume) {
+		volume = strtof(cf_encoder_volume, NULL);
+	}
+
+	unsigned int levels = 7;
+	unsigned int samples_per_subband = 16;
+	if (cf_encoder_transform) {
+		int res = sscanf(cf_encoder_transform, "%u/%u", &levels, &samples_per_subband);
+		if (res != 2) {
+			fprintf(stderr, "invalid transform arg: %s\n", cf_encoder_transform);
+			exit(1);
+		}
+	}
+
 	FILE *out = fopen(fn2, "wb");
 	if (!out) {
 		perror(fn2);
 		exit(1);
 	}
 
-	uint32_t sample_rate = wav_sample_rate(wav);
-	uint16_t nchannels = wav_nchannels(wav);
-	float factor = sample_rate <= 22050 ? 4.0f : 8.0f;
-	float volume = 0.97;
-	int levels = 7;
-	int samples_per_subband = 2048 / (1 << levels);
-
 	int err = acm_encode(read_sample, wav, out, nchannels, sample_rate, volume, levels,
 			     samples_per_subband, 1.0f / factor, cf_wavc);
-	if (err != 0)
+	if (err != 0) {
 		fprintf(stderr, "%s: encoding failed\n", fn);
+		exit(1);
+	}
 	fflush(out);
 	fclose(out);
 	wav_close(wav);
@@ -371,8 +397,8 @@ static void usage(int err)
 	printf("Play:   acmtool -p [-q][-m|-s] acmfile [acmfile ...]\n");
 	printf("Decode: acmtool -d [-q][-m|-s] -o wavfile acmfile\n");
 	printf("        acmtool -d [-q][-m|-s] [-n] acmfile [acmfile ...]\n");
-	printf("Encode: acmtool -e [-q][-w] -o acmfile wavfile\n");
-	printf("        acmtool -e [-q][-w] wavfile [wavfile ...]\n");
+	printf("Encode: acmtool -e [-q][-w][-b N] -o acmfile wavfile\n");
+	printf("        acmtool -e [-q][-w][-b N] wavfile [wavfile ...]\n");
 	printf("Other:  acmtool -i acmfile [acmfile ...]\n");
 	printf("        acmtool -M|-S acmfile [acmfile ...]\n");
 	printf("Commands:\n");
@@ -386,6 +412,9 @@ static void usage(int err)
 	printf("  -m     force mono\n");
 	printf("  -s     force stereo (default)\n");
 	printf("  -w     encode to WAVC format\n");
+	printf("  -b     encode max bitrate in kbps\n");
+	printf("  -T     transform setting levels/samples (default 7/16)\n");
+	printf("  -V     encoder volume change (default 0.97)\n");
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
 	printf("  -o FN  output to file, can be used if single source file\n");
@@ -406,7 +435,7 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:w")) != -1) {
+	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -446,6 +475,15 @@ int main(int argc, char *argv[])
 			break;
 		case 'w':
 			cf_wavc = 1;
+			break;
+		case 'b':
+			cf_encoder_bitrate = optarg;
+			break;
+		case 'T':
+			cf_encoder_transform = optarg;
+			break;
+		case 'V':
+			cf_encoder_volume = optarg;
 			break;
 		case 'n':
 			cf_no_output = 1;
