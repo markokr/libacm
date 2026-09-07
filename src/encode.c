@@ -722,6 +722,9 @@ static int write_bands(Encoder *enc)
 
 	for (int col = 0; col < enc->n_columns; col++) {
 		PackerId fmt = enc->column_format[col];
+		if (acm_debug_encoder) {
+			printf("  %d: %d\n", col, fmt);
+		}
 		OUTPUT_BITS(enc, fmt, 5);
 		if (packer_list[fmt] == NULL)
 			return ACM_ERR_CORRUPT;
