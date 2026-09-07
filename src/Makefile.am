@@ -1,4 +1,7 @@
-AM_CFLAGS =-ffp-contract=off -Wall -Wextra -Wno-unused-parameter -Wmissing-prototypes
+
+MATH_CFLAGS = -ffp-contract=off
+WARN_CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wmissing-prototypes
+AM_CFLAGS = $(MATH_CFLAGS) $(WARN_CFLAGS)
 
 bin_PROGRAMS = acmtool
 lib_LTLIBRARIES = libacm.la
@@ -11,10 +14,5 @@ libacm_la_LDFLAGS = -version-info 1:0:0 -no-undefined
 noinst_HEADERS = encode.h wavio.h
 acmtool_SOURCES = acmtool.c encode.c wavio.c
 
-if USE_LIBAO
-acmtool_CFLAGS = $(AO_CFLAGS) $(AM_CFLAGS)
+acmtool_CFLAGS = $(AM_CFLAGS) $(AO_CFLAGS)
 acmtool_LDADD = libacm.la $(AO_LIBS)
-else
-acmtool_LDADD = libacm.la
-endif
-

@@ -40,6 +40,7 @@ static int cf_wavc = 0;
 static const char *cf_encoder_bitrate = NULL;
 static const char *cf_encoder_transform = NULL;
 static const char *cf_encoder_volume = NULL;
+static const char *cf_encoder_quality = NULL;
 
 static void show_header(const char *fn, ACMStream *acm)
 {
@@ -265,6 +266,57 @@ write_error:
 	exit(1);
 }
 
+static float calc_ratio(float q)
+{
+	if (q < 0.01)
+		q = 1;
+	else if (q > 10)
+		q = 10;
+	float raw_bits = 22050 * 2 * 16;
+	float bits = q * 32 * 1000; // 32 .. 320
+	return raw_bits / bits;
+}
+
+static void pick_transform(float q, unsigned int *levels, unsigned int *samples)
+{
+	if (q < 2) {
+		*levels = 8;
+		*samples = 32;
+	} else if (q < 5) {
+		*levels = 8;
+		*samples = 16;
+	} else if (q < 8) {
+		*levels = 7;
+		*samples = 16;
+	} else {
+		*levels = 6;
+		*samples = 16;
+	}
+}
+
+static int kbps(float bits, float ratio)
+{
+	return (int)(bits / (ratio * 1000));
+}
+
+static void show_quality(void)
+{
+	float mono44 = 44100 * 16;
+	float mono22 = 22050 * 16;
+	printf("  Q | M22 | S22 | M44 | S44 | LV | SN | BLK  | T22S  | T44S\n");
+	printf("----+-----+-----+-----+-----+----+----+------+-------+--------\n");
+	for (int i = 1; i <= 10; i++) {
+		unsigned int levels, samples;
+		float ratio = calc_ratio(i);
+		pick_transform(i, &levels, &samples);
+		unsigned int blk = (1 << levels) * samples;
+		printf(" %2d | %3d | %3d | %3d | %3d | %2u | %2u | %4u | %3ums | %3ums\n", i,
+		       kbps(mono22, ratio), kbps(mono22 * 2, ratio), kbps(mono44, ratio),
+		       kbps(mono44 * 2, ratio), levels, samples, blk, 1000 * blk / (22050 * 2),
+		       1000 * blk / (44100 * 2));
+	}
+}
+
 static int read_sample(void *wf, int16_t *sample)
 {
 	return wav_read_sample(wf, sample);
@@ -281,10 +333,24 @@ static void encode_file(const char *fn, const char *fn2)
 		exit(1);
 	}
 
+	float volume = 0.97;
+	if (cf_encoder_volume) {
+		volume = strtof(cf_encoder_volume, NULL);
+	}
+
 	uint32_t sample_rate = wav_sample_rate(wav);
 	uint16_t nchannels = wav_nchannels(wav);
 
 	float factor = sample_rate <= 22050 ? 4.0f : 8.0f;
+	unsigned int levels = 7;
+	unsigned int samples_per_subband = 16;
+
+	if (cf_encoder_quality) {
+		float q = strtof(cf_encoder_quality, NULL);
+		factor = calc_ratio(q);
+		pick_transform(q, &levels, &samples_per_subband);
+	}
+
 	if (cf_encoder_bitrate) {
 		long rate = strtol(cf_encoder_bitrate, NULL, 10);
 		if (rate > 0) {
@@ -294,13 +360,6 @@ static void encode_file(const char *fn, const char *fn2)
 		}
 	}
 
-	float volume = 0.97;
-	if (cf_encoder_volume) {
-		volume = strtof(cf_encoder_volume, NULL);
-	}
-
-	unsigned int levels = 7;
-	unsigned int samples_per_subband = 16;
 	if (cf_encoder_transform) {
 		int res = sscanf(cf_encoder_transform, "%u/%u", &levels, &samples_per_subband);
 		if (res != 2) {
@@ -391,57 +450,6 @@ static void show_info(const char *fn)
 	acm_close(acm);
 }
 
-static float calc_ratio(float q)
-{
-	if (q < 0.01)
-		q = 1;
-	else if (q > 10)
-		q = 10;
-	float raw_bits = 22050 * 2 * 16;
-	float bits = q * 32 * 1000; // 32 .. 320
-	return raw_bits / bits;
-}
-
-static void pick_transform(float q, int *levels, int *samples)
-{
-	if (q < 2) {
-		*levels = 8;
-		*samples = 32;
-	} else if (q < 5) {
-		*levels = 8;
-		*samples = 16;
-	} else if (q < 8) {
-		*levels = 7;
-		*samples = 16;
-	} else {
-		*levels = 6;
-		*samples = 16;
-	}
-}
-
-static int kbps(float bits, float ratio)
-{
-	return (int)(bits / (ratio * 1000));
-}
-
-static void show_quality(void)
-{
-	float mono44 = 44100 * 16;
-	float mono22 = 22050 * 16;
-	printf("  Q | M22 | S22 | M44 | S44 | LV | SN | BLK  | T22S  | T44S\n");
-	printf("----+-----+-----+-----+-----+----+----+------+-------+--------\n");
-	for (int i = 1; i <= 10; i++) {
-		int levels, samples;
-		float ratio = calc_ratio(i);
-		pick_transform(i, &levels, &samples);
-		int blk = (1 << levels) * samples;
-		printf(" %2d | %3d | %3d | %3d | %3d | %2d | %2d | %4d | %3dms | %3dms\n", i,
-		       kbps(mono22, ratio), kbps(mono22 * 2, ratio), kbps(mono44, ratio),
-		       kbps(mono44 * 2, ratio), levels, samples, blk, 1000 * blk / (22050 * 2),
-		       1000 * blk / (44100 * 2));
-	}
-}
-
 static void usage(int err)
 {
 	printf("%s\n", version);
@@ -486,13 +494,10 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:QD")) != -1) {
+	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:Q:X")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
-			break;
-		case 'D':
-			acm_debug_encoder = 1;
 			break;
 		case 'd':
 			cmd_decode = 1;
@@ -546,9 +551,11 @@ int main(int argc, char *argv[])
 			fn2 = optarg;
 			break;
 		case 'Q':
-			show_quality();
-			exit(0);
+			cf_encoder_quality = optarg;
 			break;
+		case 'X':
+			show_quality();
+			return 0;
 		case 'v':
 			printf("%s\n", version);
 			exit(0);
