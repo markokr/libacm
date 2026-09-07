@@ -27,7 +27,7 @@ extern int acm_debug_encoder;
 typedef int ReadSampleFunction(void *data, int16_t *sample);
 
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, uint16_t channels,
-		   uint32_t sample_rate, double volume, int levels, int samples_per_subband,
-		   double comp_ratio, int wavc);
+		   uint32_t sample_rate, float volume, int levels, int samples_per_subband,
+		   float comp_ratio, int wavc);
 
 #endif
