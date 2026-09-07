@@ -391,6 +391,57 @@ static void show_info(const char *fn)
 	acm_close(acm);
 }
 
+static float calc_ratio(float q)
+{
+	if (q < 0.01)
+		q = 1;
+	else if (q > 10)
+		q = 10;
+	float raw_bits = 22050 * 2 * 16;
+	float bits = q * 32 * 1000; // 32 .. 320
+	return raw_bits / bits;
+}
+
+static void pick_transform(float q, int *levels, int *samples)
+{
+	if (q < 2) {
+		*levels = 8;
+		*samples = 32;
+	} else if (q < 5) {
+		*levels = 8;
+		*samples = 16;
+	} else if (q < 8) {
+		*levels = 7;
+		*samples = 16;
+	} else {
+		*levels = 6;
+		*samples = 16;
+	}
+}
+
+static int kbps(float bits, float ratio)
+{
+	return (int)(bits / (ratio * 1000));
+}
+
+static void show_quality(void)
+{
+	float mono44 = 44100 * 16;
+	float mono22 = 22050 * 16;
+	printf("  Q | M22 | S22 | M44 | S44 | LV | SN | BLK  | T22S  | T44S\n");
+	printf("----+-----+-----+-----+-----+----+----+------+-------+--------\n");
+	for (int i = 1; i <= 10; i++) {
+		int levels, samples;
+		float ratio = calc_ratio(i);
+		pick_transform(i, &levels, &samples);
+		int blk = (1 << levels) * samples;
+		printf(" %2d | %3d | %3d | %3d | %3d | %2d | %2d | %4d | %3dms | %3dms\n", i,
+		       kbps(mono22, ratio), kbps(mono22 * 2, ratio), kbps(mono44, ratio),
+		       kbps(mono44 * 2, ratio), levels, samples, blk, 1000 * blk / (22050 * 2),
+		       1000 * blk / (44100 * 2));
+	}
+}
+
 static void usage(int err)
 {
 	printf("%s\n", version);
@@ -435,7 +486,7 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:")) != -1) {
+	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:Q")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -490,6 +541,10 @@ int main(int argc, char *argv[])
 			break;
 		case 'o':
 			fn2 = optarg;
+			break;
+		case 'Q':
+			show_quality();
+			exit(0);
 			break;
 		case 'v':
 			printf("%s\n", version);
