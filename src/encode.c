@@ -59,15 +59,21 @@
 #define MAX_LEVELS 15
 #define MAX_COLUMNS (1 << MAX_LEVELS)
 #define MIN_ROWS 1
-#define MAX_ROWS (1 << 12)
+#define MAX_ROWS ((1 << 12) - 1)
 #define MAX_BLOCK_LEN (1024 * 1024)
+
+#define VALID(levels, rows) \
+	((levels) >= MIN_LEVELS && (levels) <= MAX_LEVELS && (rows) >= MIN_ROWS \
+	 && (rows) <= MAX_ROWS && (1 << (levels)) * (rows) <= (MAX_BLOCK_LEN))
 
 // A:8/16 -> 4096
 // A:7/16 -> 2048
 // A:6/8 -> 512
-#define VALID(levels, rows) \
-	((levels) >= MIN_LEVELS && (levels) <= MAX_LEVELS && (rows) >= MIN_ROWS \
-	 && (rows) <= MAX_ROWS && (1 << (levels)) * (rows) <= (MAX_BLOCK_LEN))
+#define _REASONABLE(levels, rows, cols) \
+	((levels) >= 4 && (levels) <= 10 && (rows) >= 8 && (rows) * (cols) >= 256 \
+	 && (rows) * (cols) <= 8192)
+
+#define REASONABLE(levels, rows) _REASONABLE(levels, rows, 1 << (levels))
 
 /*
  * Bitstream writer
@@ -159,11 +165,34 @@ static int32_t quant_value(Quantizer *q, float value)
 	return w;
 }
 
+typedef struct Filter {
+	// odd number
+	int filter_len;
+	// each (filter_len+1)/2 values
+	const float *lo;
+	const float *hi;
+} Filter;
+
+static const float std_lo_filter[] = {
+	-0.0012475221f, -0.0024950907f, 0.0087309526f, 0.019957958f,
+	-0.050528999f,	-0.12055097f,	0.29304558f,   0.70617616f,
+};
+
+static const float std_hi_filter[] = {
+	0.0012475221f, -0.0024950907f, -0.0087309526f, 0.019957958f,
+	0.050528999f,  -0.12055097f,   -0.29304558f,   0.70617616f,
+};
+
+static const struct Filter std_filter = {
+	.filter_len = 15,
+	.lo = &std_lo_filter[0],
+	.hi = &std_hi_filter[0],
+};
+
 /*
  * Main encoder state
  */
 
-#define FILTER_LEN 15
 #define MAX_SLOTS (MAX_LEVELS + 1)
 
 typedef enum PackerId {
@@ -193,33 +222,34 @@ typedef enum PackerId {
 typedef struct {
 	ReadSampleFunction *reader_func;
 	void *reader_arg;
-	int32_t reader_eof;
+	int reader_eof;
 
 	BitsEncoder bits;
 	long acm_start_ofs;
 	long wavc_start_ofs;
 	int wavc;
 
-	uint32_t sample_count;
-	float volume;
+	uint32_t sample_count; /* nubmer of samples accesped */
+	int enable_output;     /* disable output while priming */
 
-	int8_t n_levels;     /* decomposition depth (decoder: acm_level) */
-	int32_t n_columns;   /* subband count = 1 << levels (decoder: acm_cols) */
-	int32_t n_rows;	     /* samples per subband */
-	int32_t block_len;   /* n_columns * n_rows */
-	int32_t priming_len; /* filter warm-up samples fed before/after the signal */
-	int32_t filter_len;  /* analysis filter length (15: symmetric, 8 unique taps) */
+	const Filter *filter; /* tranform filter */
+	float volume;	      /* scale input samples */
+	int bit_budget;	      /* output bits per block */
 
-	float *level_slots[MAX_SLOTS]; /* per-level coefficient buffers of the analysis tree */
-	int32_t input_pos;	       /* pos in level_slots[0] for new samples */
+	int8_t n_levels; /* decomposition depth */
+	int n_columns;	 /* subband count (1 << levels) */
+	int n_rows;	 /* samples per subband */
 
-	uint8_t *column_format; /* chosen packer id per subband */
-	int32_t quant_power;	/* log2 of the dequant table size (decoder: pwr) */
-	int32_t quant_step;	/* uniform quantizer step size (decoder: val) */
-	int32_t bit_budget;	/* bits per block */
-	Quantizer quantizer;
-	int32_t enable_output; /* 0 while priming, 1 once real output should be emitted */
+	int block_len;	 /* n_columns * n_rows */
+	int priming_len; /* filter warm-up samples fed before/after the signal */
 
+	float *level_slots[MAX_SLOTS]; /* per-level blocks */
+	int input_pos;		       /* pos in level_slots[0] for new samples */
+
+	uint8_t *column_format; /* chosen packer for subband */
+	int quant_power;	/* log2 of the dequant table size */
+	int quant_step;		/* uniform quantizer step size  */
+	Quantizer quantizer;	/* convert coeffs to code words */
 } Encoder;
 
 #define OUTPUT_BITS(enc, value, nbits) \
@@ -528,17 +558,19 @@ static int32_t calc_cost_flat(Encoder *enc, int32_t abs_peak, PackerId *res_col_
 	/* Uniform packers keyed by peak magnitude */
 	*res_col_fmt = map_fmt_flat[abs_peak];
 
-	if (abs_peak < 4) {
-		return ((enc->n_rows + 2) / 3) * ((abs_peak * 2) + 3);
-	} else {
+	if (abs_peak == 4) {
 		return ((enc->n_rows + 1) / 2) * 7;
+	} else if (abs_peak == 3) {
+		return enc->n_rows * 3;
+	} else {
+		return ((enc->n_rows + 2) / 3) * ((abs_peak * 2) + 3);
 	}
 }
 
-static int32_t calc_cost_z(Encoder *enc, int32_t abs_peak, int32_t col, PackerId *res_col_fmt)
+static int calc_cost_z(Encoder *enc, int abs_peak, int col, PackerId *res_col_fmt)
 {
-	int32_t cost_zz = 0;
-	int32_t cost_z = 0;
+	int cost_zz = 0;
+	int cost_z = 0;
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
@@ -553,10 +585,10 @@ static int32_t calc_cost_z(Encoder *enc, int32_t abs_peak, int32_t col, PackerId
 		} else if (abs_peak == 1) {
 			cost_zz += 3;
 			cost_z += 2;
-		} else if (w == -1 || w == 1) {
+		} else if (abs_peak == 2) {
 			cost_zz += 4;
 			cost_z += 3;
-		} else if (abs_peak == 2) {
+		} else if (abs_peak == 3 && (w == -1 || w == 1)) {
 			cost_zz += 4;
 			cost_z += 3;
 		} else {
@@ -574,13 +606,13 @@ static int32_t calc_cost_z(Encoder *enc, int32_t abs_peak, int32_t col, PackerId
 	}
 }
 
-static int32_t calc_nbits(int32_t min_word, int32_t max_word)
+static int calc_nbits(int32_t min_word, int32_t max_word)
 {
 	int32_t mag = (min_word < 0) ? ~min_word : 0;
 	if (max_word > 0 && mag < max_word) {
 		mag = max_word;
 	}
-	int32_t nbits = 1;
+	int nbits = 1;
 	for (; mag != 0 && nbits < 16; nbits++) {
 		mag >>= 1;
 	}
@@ -594,14 +626,14 @@ static int32_t calc_nbits(int32_t min_word, int32_t max_word)
  * returns the total encoded size of the block in bits.  Side effects: fills
  * column_format[] and records quant_power / quant_step.
  */
-static int32_t estimate_bits(Encoder *enc, int32_t step)
+static int estimate_bits(Encoder *enc, int step)
 {
-	int32_t quant_power = 3;
-	int32_t bits = 4 + 16 + enc->n_columns * 5; /* header bits */
+	int quant_power = 3;
+	int bits = 4 + 16 + enc->n_columns * 5; /* header bits */
 
 	quant_init(&enc->quantizer, step);
 
-	for (int32_t col = 0; col < enc->n_columns; col++) {
+	for (int col = 0; col < enc->n_columns; col++) {
 		int32_t min_word = 0x10000;
 		int32_t max_word = -0x10000;
 		for (int row = 0; row < enc->n_rows; row++) {
@@ -621,14 +653,14 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			abs_peak = -max_word;
 		}
 
-		int32_t cost;
+		int cost;
 		if (abs_peak == 0) {
 			cost = 0;
 			enc->column_format[col] = ZeroFill;
 		} else if (abs_peak <= 4) {
 			PackerId fmt_z, fmt_flat;
-			int32_t cost_z = calc_cost_z(enc, abs_peak, col, &fmt_z);
-			int32_t cost_flat = calc_cost_flat(enc, abs_peak, &fmt_flat);
+			int cost_z = calc_cost_z(enc, abs_peak, col, &fmt_z);
+			int cost_flat = calc_cost_flat(enc, abs_peak, &fmt_flat);
 			if (cost_flat < cost_z) {
 				cost = cost_flat;
 				enc->column_format[col] = fmt_flat;
@@ -640,7 +672,7 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
 			cost = ((enc->n_rows + 1) / 2) * 7;
 			enc->column_format[col] = Peak5Base11;
 		} else {
-			int32_t nbits = calc_nbits(min_word, max_word);
+			int nbits = calc_nbits(min_word, max_word);
 			if (quant_power < (nbits - 1)) {
 				quant_power = nbits - 1;
 			}
@@ -664,10 +696,10 @@ static int32_t estimate_bits(Encoder *enc, int32_t step)
  */
 static void choose_quant_step(Encoder *enc)
 {
-	int32_t lo = 1, hi = 0x7FFF;
+	int lo = 1, hi = 0x7FFF;
 	do {
-		int32_t mid = (lo + hi) / 2;
-		int32_t bits = estimate_bits(enc, mid);
+		int mid = (lo + hi) / 2;
+		int bits = estimate_bits(enc, mid);
 		if (bits > enc->bit_budget) {
 			lo = mid + 1;
 		} else {
@@ -701,16 +733,6 @@ static int write_bands(Encoder *enc)
  * Subband tranform
  */
 
-static const float std_lo_filter[] = {
-	-0.0012475221f, -0.0024950907f, 0.0087309526f, 0.019957958f,
-	-0.050528999f,	-0.12055097f,	0.29304558f,   0.70617616f,
-};
-
-static const float std_hi_filter[] = {
-	0.0012475221f, -0.0024950907f, -0.0087309526f, 0.019957958f,
-	0.050528999f,  -0.12055097f,   -0.29304558f,   0.70617616f,
-};
-
 /*
  * One 2-channel QMF analysis step over a single subband.  Symmetric FIR:
  * even outputs use the low-pass (scaling) filter, odd outputs the high-pass
@@ -719,12 +741,13 @@ static const float std_hi_filter[] = {
  */
 static void transform_column(Encoder *enc, const float *src, float *dst, int cols, int rows)
 {
-	int halfTaps = (enc->filter_len - 1) / 2; /* taps on each side of center */
-	int reach = halfTaps * cols;		  /* offset to the symmetric neighbor */
+	const Filter *filter = enc->filter;
+	int halfTaps = (filter->filter_len - 1) / 2; /* taps on each side of center */
+	int reach = halfTaps * cols;		     /* offset to the symmetric neighbor */
 	src -= reach;
 
 	for (int row = 0; row < rows; row++) {
-		const float *coef = (row & 1) ? std_hi_filter : std_lo_filter;
+		const float *coef = (row & 1) ? filter->hi : filter->lo;
 		const float *left = src - reach;
 		const float *right = src + reach;
 		float acc = 0.0f;
@@ -747,8 +770,8 @@ static void transform_column(Encoder *enc, const float *src, float *dst, int col
  */
 static void transform(Encoder *enc)
 {
-	int32_t cols = 1;
-	int32_t rows = enc->block_len; /* samples per subband at this level */
+	int cols = 1;
+	int rows = enc->block_len; /* samples per subband at this level */
 	for (int i = 0; i < enc->n_levels; i++) {
 		float *src = enc->level_slots[i];
 		float *dst = enc->level_slots[i + 1];
@@ -772,7 +795,7 @@ static void transform(Encoder *enc)
  */
 static void shift_overlap(Encoder *enc)
 {
-	int32_t overlap = enc->filter_len - 1;
+	int overlap = enc->filter->filter_len - 1;
 	for (int i = 0; i < enc->n_levels; i++, overlap += overlap) {
 		float *dst = enc->level_slots[i] - overlap;
 		float *src = dst + enc->block_len;
@@ -873,21 +896,22 @@ static void reader_init(Encoder *enc, ReadSampleFunction *read, void *arg)
 	enc->reader_arg = arg;
 }
 
-static int setup_encoder(Encoder *enc, int filter_len, int levels, int n_rows)
+static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *filter)
 {
-	enc->filter_len = filter_len;
+	enc->filter = filter;
 	enc->n_levels = levels;
 	enc->n_columns = 1 << levels;
 	enc->n_rows = n_rows;
 	enc->block_len = n_rows * enc->n_columns;
 
-	int half_filter = (filter_len + 1) / 2;
+	int half_filter = (filter->filter_len + 1) / 2;
 	enc->priming_len = half_filter * (enc->n_columns - 1);
 
 	enc->sample_count = 0;
 	enc->enable_output = 0;
 	enc->reader_eof = 0;
 
+	// goal: (input_pos + priming_len) % block_len == 0
 	enc->input_pos = ((enc->block_len * 100) - enc->priming_len) % enc->block_len;
 
 	enc->column_format = calloc(enc->n_columns, sizeof(*enc->column_format));
@@ -897,7 +921,7 @@ static int setup_encoder(Encoder *enc, int filter_len, int levels, int n_rows)
 	for (int i = 0; i <= levels; i++) {
 		int overlap = 0;
 		if (i != levels) {
-			overlap = (filter_len - 1) << i;
+			overlap = (filter->filter_len - 1) << i;
 		}
 		float *buf = calloc(enc->block_len + overlap, sizeof(float));
 		if (buf == NULL)
@@ -914,7 +938,7 @@ static void free_encoder(Encoder *enc)
 		if (enc->level_slots[i] != NULL) {
 			int overlap = 0;
 			if (enc->n_levels != i) {
-				overlap = (enc->filter_len - 1) << i;
+				overlap = (enc->filter->filter_len - 1) << i;
 			}
 			free(enc->level_slots[i] - overlap);
 		}
@@ -996,7 +1020,7 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, uint16_t cha
 	reader_init(enc, read, data);
 	bits_init(&enc->bits, out);
 
-	int err = setup_encoder(enc, FILTER_LEN, levels, samples_per_subband);
+	int err = setup_encoder(enc, levels, samples_per_subband, &std_filter);
 	if (err)
 		goto error;
 
