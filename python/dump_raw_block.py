@@ -314,14 +314,14 @@ def f_t37(br, rows, ind, out):
 
 
 FILLER_LIST = (
-    f_zero, f_bad,    f_bad,    f_linear,  # 0..3
+    f_zero, f_bad, f_bad, f_linear,  # 0..3
     f_linear, f_linear, f_linear, f_linear,  # 4..7
     f_linear, f_linear, f_linear, f_linear,  # 8..11
     f_linear, f_linear, f_linear, f_linear,  # 12..15
-    f_linear, f_k13,    f_k12,    f_t15,     # 16..19
-    f_k24,    f_k23,    f_t27,    f_k35,     # 20..23
-    f_k34,    f_bad,    f_k45,    f_k44,     # 24..27
-    f_bad,    f_t37,    f_bad,    f_bad,     # 28..31
+    f_linear, f_k13, f_k12, f_t15,     # 16..19
+    f_k24, f_k23, f_t27, f_k35,     # 20..23
+    f_k34, f_bad, f_k45, f_k44,     # 24..27
+    f_bad, f_t37, f_bad, f_bad,     # 28..31
 )
 
 
@@ -334,20 +334,22 @@ def decode_block_raw(br: BitReader, info: dict) -> tuple:
     row-major like acm->block (index = row * acm_cols + col).
     """
     pwr = br.get_bits(4)
-    val = br.get_bits(16)
+    step = br.get_bits(16)
 
     rows = info["acm_rows"]
     cols = info["acm_cols"]
     block = [0] * (rows * cols)
     row_buf = [0] * rows
+    fillers = []
 
     for col in range(cols):
         ind = br.get_bits(5)
+        fillers.append(ind)
         FILLER_LIST[ind](br, rows, ind, row_buf)
         for row in range(rows):
-            block[row * cols + col] = row_buf[row] * val
+            block[row * cols + col] = row_buf[row] * step
 
-    return block, pwr, val
+    return block, pwr, step, fillers
 
 
 def dump(acm_path: str, out_fh, max_blocks: int | None = None) -> int:
@@ -370,14 +372,20 @@ def dump(acm_path: str, out_fh, max_blocks: int | None = None) -> int:
     block_no = 0
     while max_blocks is None or block_no < max_blocks:
         try:
-            block, pwr, val = decode_block_raw(br, info)
+            block, pwr, val, fillers = decode_block_raw(br, info)
         except EOFError:
             break
 
         print(f"# block {block_no} pwr={pwr} val={val} rows={rows} cols={cols}", file=out_fh)
-        for r in range(rows):
-            row = block[r * cols:(r + 1) * cols]
-            print(" ".join(str(v) for v in row), file=out_fh)
+        for c in range(cols):
+            vals = []
+            for r in range(rows):
+                v = block[r * cols + c]
+                vals.append(str(v))
+            print(f"col={c} fmt={fillers[c]}: {' '.join(vals)}")
+        #for r in range(rows):
+        #    row = block[r * cols:(r + 1) * cols]
+        #    print(" ".join(str(v) for v in row), file=out_fh)
 
         block_no += 1
 

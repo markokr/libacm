@@ -1,4 +1,4 @@
-AM_CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wmissing-prototypes
+AM_CFLAGS =-ffp-contract=off -Wall -Wextra -Wno-unused-parameter -Wmissing-prototypes
 
 bin_PROGRAMS = acmtool
 lib_LTLIBRARIES = libacm.la

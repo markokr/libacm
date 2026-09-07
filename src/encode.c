@@ -53,6 +53,15 @@
 #include "libacm.h"
 #include "encode.h"
 
+/* prefer deterministic float */
+#ifndef __FAST_MATH__
+#if defined(_MSC_VER)
+#pragma fp_contract(off)
+#else
+#pragma STDC FP_CONTRACT OFF
+#endif
+#endif
+
 #define SAMPLE_WIDTH 16
 
 #define MIN_LEVELS 1
@@ -530,8 +539,7 @@ static int pack_peak5_base11(Encoder *enc, int col, PackerId fmt)
 }
 
 /*
- * Packer dispatch table, indexed by the 5-bit format id.  Index-aligned with
- * the decoder's filler_list[] so id N encodes exactly what f_*(N) decodes.
+ * Packer dispatch table
  */
 static const PackFunc packer_list[] = {
 	/* 0 .. 3 */
@@ -629,11 +637,7 @@ static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, PackerId *res_co
 }
 
 /*
- * Rate estimation and per-subband format selection for a candidate quant step.
- * Quantizes every coefficient with q = floor((x + step/2) / step) (clamped),
- * finds the peak index per subband, picks the cheapest packer for it, and
- * returns the total encoded size of the block in bits.  Side effects: fills
- * column_format[] and records quant_power / quant_step.
+ * Rate estimation and per-subband format selection.
  */
 static int estimate_bits(Encoder *enc, int step)
 {
@@ -690,9 +694,8 @@ static int estimate_bits(Encoder *enc, int step)
 }
 
 /*
- * Rate control: binary-search the quant step so the encoded block is the
- * largest that still fits within bit_budget (a smaller step is finer and
- * costs more bits).
+ * Binary-search the quant step so the encoded block is the
+ * largest that still fits within bit_budget.
  */
 static void choose_quant_step(Encoder *enc)
 {
