@@ -269,44 +269,44 @@ typedef struct {
 /* w={-3,-2,+2,+3}, res={0 .. 3} */
 #define SHIFT_2_3(w) ((w) < 0 ? (w) + 3 : (w))
 
-typedef int (*PackFunc)(Encoder *enc, int32_t col, uint32_t formatId);
+typedef int (*PackFunc)(Encoder *enc, int col, PackerId formatId);
 
-static int32_t codeword(Encoder *enc, int32_t row, int32_t col)
+static int32_t codeword(Encoder *enc, int row, int col)
 {
 	float *values = enc->level_slots[enc->n_levels];
 	float value = values[(row * enc->n_columns) + col];
 	return quant_value(&enc->quantizer, value);
 }
 
-static int last_row(Encoder *enc, int32_t row)
+static int last_row(Encoder *enc, int row)
 {
 	return row == enc->n_rows - 1;
 }
 
-static int zero_follows(Encoder *enc, int32_t row, int32_t col)
+static int zero_follows(Encoder *enc, int row, int col)
 {
 	return !last_row(enc, row) && codeword(enc, row + 1, col) == 0;
 }
 
-static int pack_zero(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_zero(Encoder *enc, int col, PackerId fmt)
 {
 	return 0;
 }
 
-static int pack_binary(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_binary(Encoder *enc, int col, uint32_t fmt)
 {
-	int32_t mid = (1 << (formatId - 1));
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	int32_t mid = (1 << (fmt - 1));
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
-		OUTPUT_BITS(enc, w + mid, formatId);
+		OUTPUT_BITS(enc, w + mid, fmt);
 	}
 	return 0;
 }
 
 /* Words {-1..1}, assume zero pair */
-static int pack_peak1_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_zz(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (zero_follows(enc, row, col)) {
@@ -327,9 +327,9 @@ static int pack_peak1_zz(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words {-1..1}, assume zero */
-static int pack_peak1_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_z(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
@@ -344,9 +344,9 @@ static int pack_peak1_z(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* 3 words of {-1,0,1} per 5-bits */
-static int pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak1_base3(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 1;
 
@@ -362,7 +362,7 @@ static int pack_peak1_base3(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words {-2..2}, assume zero pair */
-static int pack_peak2_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_zz(Encoder *enc, int col, PackerId fmt)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -385,9 +385,9 @@ static int pack_peak2_zz(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words {-2..2}, assume zero */
-static int pack_peak2_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_z(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
@@ -403,9 +403,9 @@ static int pack_peak2_z(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Base-5 packing: 3 words in {-2..2} per 7-bits */
-static int pack_peak2_base5(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak2_base5(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 2;
 
@@ -421,9 +421,9 @@ static int pack_peak2_base5(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words {-3..3}, assume zero pair */
-static int pack_peak3_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak3_zz(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (zero_follows(enc, row, col)) {
@@ -451,9 +451,9 @@ static int pack_peak3_zz(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words in {-3..3}, assume zero */
-static int pack_peak3_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak3_z(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			/* 0 */
@@ -475,9 +475,9 @@ static int pack_peak3_z(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words in {-4..4}, assume zero pair */
-static int pack_peak4_zz(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak4_zz(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
 			if (zero_follows(enc, row, col)) {
@@ -498,9 +498,9 @@ static int pack_peak4_zz(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* Words {-4..4}, assume zero */
-static int pack_peak4_z(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak4_z(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 
 		if (w == 0) {
@@ -516,9 +516,9 @@ static int pack_peak4_z(Encoder *enc, int32_t col, uint32_t formatId)
 }
 
 /* 2 words in {-5..5} per 7-bits */
-static int pack_peak5_base11(Encoder *enc, int32_t col, uint32_t formatId)
+static int pack_peak5_base11(Encoder *enc, int col, PackerId fmt)
 {
-	for (int32_t row = 0; row < enc->n_rows; row++) {
+	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		int32_t packed = w + 5;
 
@@ -553,7 +553,7 @@ static const PackerId map_fmt_zz[] = { ZeroFill, Peak1ZZ, Peak2ZZ, Peak3ZZ, Peak
 static const PackerId map_fmt_z[] = { ZeroFill, Peak1Z, Peak2Z, Peak3Z, Peak4Z };
 static const PackerId map_fmt_flat[] = { ZeroFill, Peak1Base3, Peak2Base5, Binary3, Peak5Base11 };
 
-static int32_t calc_cost_flat(Encoder *enc, int32_t abs_peak, PackerId *res_col_fmt)
+static int calc_cost_flat(Encoder *enc, int32_t abs_peak, PackerId *res_col_fmt)
 {
 	/* Uniform packers keyed by peak magnitude */
 	*res_col_fmt = map_fmt_flat[abs_peak];
@@ -567,7 +567,7 @@ static int32_t calc_cost_flat(Encoder *enc, int32_t abs_peak, PackerId *res_col_
 	}
 }
 
-static int calc_cost_z(Encoder *enc, int abs_peak, int col, PackerId *res_col_fmt)
+static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, PackerId *res_col_fmt)
 {
 	int cost_zz = 0;
 	int cost_z = 0;
