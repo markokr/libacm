@@ -77,6 +77,8 @@
 
 int acm_debug_encoder;
 
+#define float double
+
 /*
  * Bitstream writer
  */
@@ -748,21 +750,15 @@ static int write_bands(Encoder *enc)
 static void transform_column(Encoder *enc, const float *src, float *dst, int cols, int rows)
 {
 	const Filter *filter = enc->filter;
-	int halfTaps = (filter->filter_len - 1) / 2; /* taps on each side of center */
-	int reach = halfTaps * cols;		     /* offset to the symmetric neighbor */
-	src -= reach;
+	int half = (filter->filter_len - 1) / 2; /* taps on each side of center */
 
 	for (int row = 0; row < rows; row++) {
 		const float *coef = (row & 1) ? filter->hi : filter->lo;
-		const float *left = src - reach;
-		const float *right = src + reach;
-		float acc = 0.0f;
-		for (int j = halfTaps; j > 0; j--) {
-			acc += (*right + *left) * *coef++;
-			left += cols;
-			right -= cols;
+		float acc = src[0] * coef[half];
+		for (int j = half; j > 0; j--) {
+			acc += (src[j * cols] + src[-j * cols]) * coef[half - j];
 		}
-		*dst = (*left * *coef) + acc;
+		*dst = acc;
 
 		dst += cols;
 		src += cols;
