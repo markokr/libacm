@@ -75,16 +75,17 @@
 	((levels) >= MIN_LEVELS && (levels) <= MAX_LEVELS && (rows) >= MIN_ROWS \
 	 && (rows) <= MAX_ROWS && (1 << (levels)) * (rows) <= (MAX_BLOCK_LEN))
 
-// A:8/16 -> 4096
-// A:7/16 -> 2048
-// A:6/8 -> 512
+/*
+ * Common params:
+ * A:8/16 -> 4096
+ * A:7/16 -> 2048
+ * A:6/8 -> 512
+ */
 #define _REASONABLE(levels, rows, cols) \
 	((levels) >= 4 && (levels) <= 10 && (rows) >= 8 && (rows) * (cols) >= 256 \
 	 && (rows) * (cols) <= 8192)
 
 #define REASONABLE(levels, rows) _REASONABLE(levels, rows, 1 << (levels))
-
-int acm_debug_encoder;
 
 /*
  * Bitstream writer
@@ -710,15 +711,9 @@ static int write_bands(Encoder *enc)
 {
 	OUTPUT_BITS(enc, enc->quant_power, 4);
 	OUTPUT_BITS(enc, enc->quant_step, 16);
-	if (acm_debug_encoder) {
-		printf("power=%d step=%d\n", enc->quant_power, enc->quant_step);
-	}
 
 	for (int col = 0; col < enc->n_columns; col++) {
 		PackerId fmt = enc->column_format[col];
-		if (acm_debug_encoder) {
-			printf("  %d: %d\n", col, fmt);
-		}
 		OUTPUT_BITS(enc, fmt, 5);
 		if (packer_list[fmt] == NULL)
 			return ACM_ERR_CORRUPT;

@@ -119,41 +119,39 @@ def read_header(br: BitReader) -> dict:
 # lookups, since midbuf[idx] == idx * val).
 
 
-def f_zero(br, rows, ind, out):
+def f_zero(br, rows, fmt, out):
     for i in range(rows):
         out[i] = 0
 
 
-def f_bad(br, rows, ind, out):
-    raise AcmError("corrupt block (reserved filler index)")
+def f_bad(br, rows, fmt, out):
+    raise AcmError("corrupt block (reserved filler fmt)")
 
 
-def f_linear(br, rows, ind, out):
-    middle = 1 << (ind - 1)
+def f_binary(br, rows, fmt, out):
+    middle = 1 << (fmt - 1)
     for i in range(rows):
-        out[i] = br.get_bits(ind) - middle
+        out[i] = br.get_bits(fmt) - middle
 
 
-def f_k13(br, rows, ind, out):
+def f_peak1_zz(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
     i = 0
     while i < rows:
         if br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            if i >= rows:
-                break
+            if i < rows:
+                out[i] = 0
+                i += 1
+        elif br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            continue
-        if br.get_bits(1) == 0:
-            out[i] = 0
+        else:
+            out[i] = MAP_1BIT[br.get_bits(1)]
             i += 1
-            continue
-        out[i] = MAP_1BIT[br.get_bits(1)]
-        i += 1
 
 
-def f_k12(br, rows, ind, out):
+def f_peak1_z(br, rows, fmt, out):
     for i in range(rows):
         if br.get_bits(1) == 0:
             out[i] = 0
@@ -161,26 +159,24 @@ def f_k12(br, rows, ind, out):
             out[i] = MAP_1BIT[br.get_bits(1)]
 
 
-def f_k24(br, rows, ind, out):
+def f_peak2_zz(br, rows, fmt, out):
     i = 0
     while i < rows:
         if br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            if i >= rows:
-                break
+            if i < rows:
+                out[i] = 0
+                i += 1
+        elif br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            continue
-        if br.get_bits(1) == 0:
-            out[i] = 0
+        else:
+            out[i] = MAP_2BIT_NEAR[br.get_bits(2)]
             i += 1
-            continue
-        out[i] = MAP_2BIT_NEAR[br.get_bits(2)]
-        i += 1
 
 
-def f_k23(br, rows, ind, out):
+def f_peak2_z(br, rows, fmt, out):
     for i in range(rows):
         if br.get_bits(1) == 0:
             out[i] = 0
@@ -188,64 +184,54 @@ def f_k23(br, rows, ind, out):
             out[i] = MAP_2BIT_NEAR[br.get_bits(2)]
 
 
-def f_k35(br, rows, ind, out):
+def f_peak3_zz(br, rows, fmt, out):
     i = 0
     while i < rows:
         if br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            if i >= rows:
-                break
+            if i < rows:
+                out[i] = 0
+                i += 1
+        elif br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            continue
-        if br.get_bits(1) == 0:
-            out[i] = 0
-            i += 1
-            continue
-        if br.get_bits(1) == 0:
+        elif br.get_bits(1) == 0:
             out[i] = MAP_1BIT[br.get_bits(1)]
             i += 1
-            continue
-        out[i] = MAP_2BIT_FAR[br.get_bits(2)]
-        i += 1
+        else:
+            out[i] = MAP_2BIT_FAR[br.get_bits(2)]
+            i += 1
 
 
-def f_k34(br, rows, ind, out):
-    i = 0
-    while i < rows:
+def f_peak3_z(br, rows, fmt, out):
+    for i in range(rows):
         if br.get_bits(1) == 0:
             out[i] = 0
-            i += 1
-            continue
-        if br.get_bits(1) == 0:
+        elif br.get_bits(1) == 0:
             out[i] = MAP_1BIT[br.get_bits(1)]
-            i += 1
-            continue
-        out[i] = MAP_2BIT_FAR[br.get_bits(2)]
-        i += 1
+        else:
+            out[i] = MAP_2BIT_FAR[br.get_bits(2)]
 
 
-def f_k45(br, rows, ind, out):
+def f_peak4_zz(br, rows, fmt, out):
     i = 0
     while i < rows:
         if br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            if i >= rows:
-                break
+            if i < rows:
+                out[i] = 0
+                i += 1
+        elif br.get_bits(1) == 0:
             out[i] = 0
             i += 1
-            continue
-        if br.get_bits(1) == 0:
-            out[i] = 0
+        else:
+            out[i] = MAP_3BIT[br.get_bits(3)]
             i += 1
-            continue
-        out[i] = MAP_3BIT[br.get_bits(3)]
-        i += 1
 
 
-def f_k44(br, rows, ind, out):
+def f_peak4_z(br, rows, fmt, out):
     for i in range(rows):
         if br.get_bits(1) == 0:
             out[i] = 0
@@ -253,75 +239,62 @@ def f_k44(br, rows, ind, out):
             out[i] = MAP_3BIT[br.get_bits(3)]
 
 
-def f_t15(br, rows, ind, out):
+def f_peak1_base3(br, rows, fmt, out):
     i = 0
     while i < rows:
         b = br.get_bits(5)
         if b >= 3 * 3 * 3:
             raise AcmError("corrupt block (f_t15 out of range)")
-        n1 = b % 3 - 1
         tmp = b // 3
-        n2 = tmp % 3 - 1
-        n3 = tmp // 3 - 1
-        out[i] = n1
+        out[i] = b % 3 - 1
         i += 1
-        if i >= rows:
-            break
-        out[i] = n2
-        i += 1
-        if i >= rows:
-            break
-        out[i] = n3
-        i += 1
+        if i < rows:
+            out[i] = tmp % 3 - 1
+            i += 1
+            if i < rows:
+                out[i] = tmp // 3 - 1
+                i += 1
 
 
-def f_t27(br, rows, ind, out):
+def f_peak2_base5(br, rows, fmt, out):
     i = 0
     while i < rows:
         b = br.get_bits(7)
         if b >= 5 * 5 * 5:
             raise AcmError("corrupt block (f_t27 out of range)")
-        n1 = b % 5 - 2
         tmp = b // 5
-        n2 = tmp % 5 - 2
-        n3 = tmp // 5 - 2
-        out[i] = n1
+        out[i] = b % 5 - 2
         i += 1
-        if i >= rows:
-            break
-        out[i] = n2
-        i += 1
-        if i >= rows:
-            break
-        out[i] = n3
-        i += 1
+        if i < rows:
+            out[i] = tmp % 5 - 2
+            i += 1
+            if i < rows:
+                out[i] = tmp // 5 - 2
+                i += 1
 
 
-def f_t37(br, rows, ind, out):
+def f_peak5_base11(br, rows, fmt, out):
     i = 0
     while i < rows:
         b = br.get_bits(7)
         if b >= 11 * 11:
             raise AcmError("corrupt block (f_t37 out of range)")
-        n1 = b % 11 - 5
-        n2 = b // 11 - 5
-        out[i] = n1
+        out[i] = b % 11 - 5
         i += 1
-        if i >= rows:
-            break
-        out[i] = n2
-        i += 1
+        if i < rows:
+            out[i] = b % 11 - 5
+            i += 1
 
 
 FILLER_LIST = (
-    f_zero, f_bad, f_bad, f_linear,  # 0..3
-    f_linear, f_linear, f_linear, f_linear,  # 4..7
-    f_linear, f_linear, f_linear, f_linear,  # 8..11
-    f_linear, f_linear, f_linear, f_linear,  # 12..15
-    f_linear, f_k13, f_k12, f_t15,     # 16..19
-    f_k24, f_k23, f_t27, f_k35,     # 20..23
-    f_k34, f_bad, f_k45, f_k44,     # 24..27
-    f_bad, f_t37, f_bad, f_bad,     # 28..31
+    f_zero, f_bad, f_bad, f_binary,                     # 0..3
+    f_binary, f_binary, f_binary, f_binary,             # 4..7
+    f_binary, f_binary, f_binary, f_binary,             # 8..11
+    f_binary, f_binary, f_binary, f_binary,             # 12..15
+    f_binary, f_peak1_zz, f_peak1_z, f_peak1_base3,     # 16..19
+    f_peak2_zz, f_peak2_z, f_peak2_base5, f_peak3_zz,   # 20..23
+    f_peak3_z, f_bad, f_peak4_zz, f_peak4_z,            # 24..27
+    f_bad, f_peak5_base11, f_bad, f_bad,                # 28..31
 )
 
 
