@@ -146,7 +146,7 @@ typedef struct {
 	int32_t max_word;
 } Quantizer;
 
-static void quant_init(Quantizer *q, int32_t step)
+static void quant_init(Quantizer *q, int step)
 {
 	q->step = (float)step;
 	q->half_step = q->step * 0.5f;
@@ -166,11 +166,8 @@ static int32_t quant_value(Quantizer *q, float value)
 }
 
 typedef struct Filter {
-	// odd number
-	int filter_len;
-	// each (filter_len+1)/2 values
-	const float *lo;
-	const float *hi;
+	int filter_len;	      /* odd number */
+	const float *lo, *hi; /* each (filter_len+1)/2 values */
 } Filter;
 
 static const float std_lo_filter[] = {
@@ -293,7 +290,7 @@ static int pack_zero(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_binary(Encoder *enc, int col, uint32_t fmt)
+static int pack_binary(Encoder *enc, int col, PackerId fmt)
 {
 	int32_t mid = (1 << (fmt - 1));
 	for (int row = 0; row < enc->n_rows; row++) {
@@ -551,19 +548,42 @@ static const PackFunc packer_list[] = {
 
 static const PackerId map_fmt_zz[] = { ZeroFill, Peak1ZZ, Peak2ZZ, Peak3ZZ, Peak4ZZ };
 static const PackerId map_fmt_z[] = { ZeroFill, Peak1Z, Peak2Z, Peak3Z, Peak4Z };
-static const PackerId map_fmt_flat[] = { ZeroFill, Peak1Base3, Peak2Base5, Binary3, Peak5Base11 };
+static const PackerId map_fmt_flat[] = { ZeroFill, Peak1Base3,	Peak2Base5,
+					 Binary3,  Peak5Base11, Peak5Base11 };
 
-static int calc_cost_flat(Encoder *enc, int32_t abs_peak, PackerId *res_col_fmt)
+static int calc_nbits(int32_t min_word, int32_t max_word)
 {
-	/* Uniform packers keyed by peak magnitude */
-	*res_col_fmt = map_fmt_flat[abs_peak];
+	int32_t mag = (min_word < 0) ? ~min_word : 0;
+	if (mag < max_word) {
+		mag = max_word;
+	}
 
-	if (abs_peak == 4) {
-		return ((enc->n_rows + 1) / 2) * 7;
-	} else if (abs_peak == 3) {
-		return enc->n_rows * 3;
+	int nbits = 1;
+	for (; mag != 0 && nbits < 16; nbits++) {
+		mag >>= 1;
+	}
+	return nbits;
+}
+
+static int calc_cost_flat(Encoder *enc, int32_t abs_peak, int32_t min_word, int32_t max_word,
+			  PackerId *res_col_fmt)
+{
+	PackerId fmt;
+	if (abs_peak <= 5) {
+		fmt = map_fmt_flat[abs_peak];
 	} else {
+		fmt = calc_nbits(min_word, max_word);
+	}
+	*res_col_fmt = fmt;
+
+	if (fmt == ZeroFill) {
+		return 0;
+	} else if (fmt == Peak1Base3 || fmt == Peak2Base5) {
 		return ((enc->n_rows + 2) / 3) * ((abs_peak * 2) + 3);
+	} else if (fmt == Peak5Base11) {
+		return ((enc->n_rows + 1) / 2) * 7;
+	} else {
+		return enc->n_rows * fmt;
 	}
 }
 
@@ -606,19 +626,6 @@ static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, PackerId *res_co
 	}
 }
 
-static int calc_nbits(int32_t min_word, int32_t max_word)
-{
-	int32_t mag = (min_word < 0) ? ~min_word : 0;
-	if (max_word > 0 && mag < max_word) {
-		mag = max_word;
-	}
-	int nbits = 1;
-	for (; mag != 0 && nbits < 16; nbits++) {
-		mag >>= 1;
-	}
-	return nbits;
-}
-
 /*
  * Rate estimation and per-subband format selection for a candidate quant step.
  * Quantizes every coefficient with q = floor((x + step/2) / step) (clamped),
@@ -653,33 +660,24 @@ static int estimate_bits(Encoder *enc, int step)
 			abs_peak = -max_word;
 		}
 
-		int cost;
-		if (abs_peak == 0) {
-			cost = 0;
-			enc->column_format[col] = ZeroFill;
-		} else if (abs_peak <= 4) {
-			PackerId fmt_z, fmt_flat;
+		PackerId fmt;
+		int cost = calc_cost_flat(enc, abs_peak, min_word, max_word, &fmt);
+
+		if (abs_peak >= 1 && abs_peak <= 4) {
+			PackerId fmt_z;
 			int cost_z = calc_cost_z(enc, abs_peak, col, &fmt_z);
-			int cost_flat = calc_cost_flat(enc, abs_peak, &fmt_flat);
-			if (cost_flat < cost_z) {
-				cost = cost_flat;
-				enc->column_format[col] = fmt_flat;
-			} else {
+			if (cost_z <= cost) {
 				cost = cost_z;
-				enc->column_format[col] = fmt_z;
+				fmt = fmt_z;
 			}
-		} else if (abs_peak == 5) {
-			cost = ((enc->n_rows + 1) / 2) * 7;
-			enc->column_format[col] = Peak5Base11;
-		} else {
-			int nbits = calc_nbits(min_word, max_word);
+		} else if (abs_peak > 5) {
+			int nbits = fmt;
 			if (quant_power < (nbits - 1)) {
 				quant_power = nbits - 1;
 			}
-			cost = nbits * enc->n_rows;
-			enc->column_format[col] = nbits;
 		}
 
+		enc->column_format[col] = fmt;
 		bits += cost;
 	}
 
