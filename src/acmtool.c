@@ -486,10 +486,13 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:Q")) != -1) {
+	while ((c = getopt(argc, argv, "pdeiMSqhmsnvo:wb:T:V:QD")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
+			break;
+		case 'D':
+			acm_debug_encoder = 1;
 			break;
 		case 'd':
 			cmd_decode = 1;

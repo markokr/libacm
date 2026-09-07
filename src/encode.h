@@ -22,6 +22,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+extern int acm_debug_encoder;
+
 typedef int ReadSampleFunction(void *data, int16_t *sample);
 
 int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, uint16_t channels,

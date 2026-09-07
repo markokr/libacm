@@ -75,6 +75,8 @@
 
 #define REASONABLE(levels, rows) _REASONABLE(levels, rows, 1 << (levels))
 
+int acm_debug_encoder;
+
 /*
  * Bitstream writer
  */
@@ -714,6 +716,9 @@ static int write_bands(Encoder *enc)
 {
 	OUTPUT_BITS(enc, enc->quant_power, 4);
 	OUTPUT_BITS(enc, enc->quant_step, 16);
+	if (acm_debug_encoder) {
+		printf("power=%d step=%d\n", enc->quant_power, enc->quant_step);
+	}
 
 	for (int col = 0; col < enc->n_columns; col++) {
 		PackerId fmt = enc->column_format[col];
