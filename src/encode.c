@@ -1,5 +1,6 @@
 /*
- * Descent 3
+ * Interplay ACM audio encoder.
+ *
  * Copyright (C) 2024 Parallax Software
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,33 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- * Interplay ACM audio encoder.
- *
- * ACM is a subband / wavelet transform coder.  Encoding one block is three
- * stages, each the inverse of a decoder (decode.c) stage:
- *
- *   1. Analysis filter bank  -- transform() / transform_subband().
- *      A dyadic tree of 2-channel QMF stages recursively splits the signal
- *      into n_columns == 2^levels uniform subbands.  std_lo_filter is the
- *      low-pass (scaling) filter, std_hi_filter the high-pass (wavelet) filter.
- *      This is the inverse of the decoder's juggle_block().
- *
- *   2. Uniform scalar quantization with rate control
- *      -- estimate_bits() / choose_quant_step().
- *      Every subband coefficient is quantized to an integer index
- *      q = floor((x + step/2) / step).  choose_quant_step() binary-searches
- *      the step so the encoded block size meets a target bit budget derived
- *      from the requested compression ratio.
- *
- *   3. Entropy coding -- the pack_*() functions.
- *      Each subband's indices are packed with whichever variable-length code
- *      is cheapest: fixed-width "linear" (pack_linear), run-length "k" codes
- *      (pack_k13 ... pack_k44), or base-3/5/11 grouped "t" codes (pack_t15,
- *      pack_t27, pack_t37).  Each pack_*() is the bit-exact inverse of the
- *      matching decoder filler f_*().
- */
-
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -52,15 +26,6 @@
 
 #include "libacm.h"
 #include "encode.h"
-
-/* prefer deterministic float */
-#ifndef __FAST_MATH__
-#if defined(_MSC_VER)
-#pragma fp_contract(off)
-#elif defined(__clang__)
-#pragma STDC FP_CONTRACT OFF
-#endif
-#endif
 
 #define SAMPLE_WIDTH 16
 
@@ -86,6 +51,15 @@
 	 && (rows) * (cols) <= 8192)
 
 #define REASONABLE(levels, rows) _REASONABLE(levels, rows, 1 << (levels))
+
+/* prefer deterministic float */
+#ifndef __FAST_MATH__
+#if defined(_MSC_VER)
+#pragma fp_contract(off)
+#elif defined(__clang__)
+#pragma STDC FP_CONTRACT OFF
+#endif
+#endif
 
 /*
  * Bitstream writer
@@ -178,8 +152,8 @@ static int32_t quant_value(Quantizer *q, float value)
 }
 
 typedef struct Filter {
-	int filter_len;	      /* odd number */
-	const float *lo, *hi; /* each (filter_len+1)/2 values */
+	int size;	      /* odd number */
+	const float *lo, *hi; /* each (size+1)/2 values */
 } Filter;
 
 static const float std_lo_filter[] = {
@@ -193,7 +167,7 @@ static const float std_hi_filter[] = {
 };
 
 static const struct Filter std_filter = {
-	.filter_len = 15,
+	.size = 15,
 	.lo = &std_lo_filter[0],
 	.hi = &std_hi_filter[0],
 };
@@ -201,8 +175,6 @@ static const struct Filter std_filter = {
 /*
  * Main encoder state
  */
-
-#define MAX_SLOTS (MAX_LEVELS + 1)
 
 typedef enum PackerId {
 	ZeroFill,
@@ -238,12 +210,12 @@ typedef struct {
 	long wavc_start_ofs;
 	int wavc;
 
-	uint32_t sample_count; /* nubmer of samples accesped */
+	uint32_t sample_count; /* nubmer of samples accepted */
 	int enable_output;     /* disable output while priming */
 
-	const Filter *filter; /* tranform filter */
+	const Filter *filter; /* transform filter */
 	float volume;	      /* scale input samples */
-	int bit_budget;	      /* output bits per block */
+	int bit_budget;	      /* max output bits per block */
 
 	int8_t n_levels; /* decomposition depth */
 	int n_columns;	 /* subband count (1 << levels) */
@@ -252,8 +224,8 @@ typedef struct {
 	int block_len;	 /* n_columns * n_rows */
 	int priming_len; /* filter warm-up samples fed before/after the signal */
 
-	float *level_slots[MAX_SLOTS]; /* per-level blocks */
-	int input_pos;		       /* pos in level_slots[0] for new samples */
+	float *level_blocks[MAX_LEVELS + 1]; /* per-level blocks */
+	int input_pos;			     /* pos in level_blocks[0] for new samples */
 
 	uint8_t *column_format; /* chosen packer for subband */
 	int quant_power;	/* log2 of the dequant table size */
@@ -274,7 +246,7 @@ typedef struct {
 
 static int32_t codeword(Encoder *enc, int row, int col)
 {
-	float *values = enc->level_slots[enc->n_levels];
+	float *values = enc->level_blocks[enc->n_levels];
 	float value = values[(row * enc->n_columns) + col];
 	return quant_value(&enc->quantizer, value);
 }
@@ -539,11 +511,11 @@ static const PackFunc packer_list[] = {
 	pack_binary, pack_binary, pack_binary, pack_binary, pack_binary, pack_binary, pack_binary,
 	pack_binary, pack_binary, pack_binary, pack_binary, pack_binary, pack_binary, pack_binary,
 
-	pack_peak1_zz, pack_peak1_z, pack_peak1_base3, // 17 .. 19
-	pack_peak2_zz, pack_peak2_z, pack_peak2_base5, // 20 .. 22
-	pack_peak3_zz, pack_peak3_z, NULL,	       // 23 .. 25
-	pack_peak4_zz, pack_peak4_z, NULL,	       // 26 .. 28
-	pack_peak5_base11, NULL, NULL		       // 29 .. 31
+	pack_peak1_zz, pack_peak1_z, pack_peak1_base3, /* 17 .. 19 */
+	pack_peak2_zz, pack_peak2_z, pack_peak2_base5, /* 20 .. 22 */
+	pack_peak3_zz, pack_peak3_z, NULL,	       /* 23 .. 25 */
+	pack_peak4_zz, pack_peak4_z, NULL,	       /* 26 .. 28 */
+	pack_peak5_base11, NULL, NULL		       /* 29 .. 31 */
 };
 
 static const PackerId map_fmt_zz[] = { ZeroFill, Peak1ZZ, Peak2ZZ, Peak3ZZ, Peak4ZZ };
@@ -731,14 +703,13 @@ static int write_bands(Encoder *enc)
 /*
  * One 2-channel QMF analysis step over a single subband.  Symmetric FIR:
  * even outputs use the low-pass (scaling) filter, odd outputs the high-pass
- * (wavelet) filter, giving a critically-sampled low/high split.  Samples of
- * this subband are interleaved in the buffer with distance `stride`.
+ * (wavelet) filter, giving a critically-sampled low/high split.
  */
 static void transform_column(Encoder *enc, const float *src, float *dst, int cols, int rows)
 {
 	const Filter *filter = enc->filter;
-	int halfTaps = (filter->filter_len - 1) / 2; /* taps on each side of center */
-	int reach = halfTaps * cols;		     /* offset to the symmetric neighbor */
+	int half = (filter->size - 1) / 2;
+	int reach = half * cols;
 	src -= reach;
 
 	for (int row = 0; row < rows; row++) {
@@ -746,7 +717,7 @@ static void transform_column(Encoder *enc, const float *src, float *dst, int col
 		const float *left = src - reach;
 		const float *right = src + reach;
 		float acc = 0.0f;
-		for (int j = halfTaps; j > 0; j--) {
+		for (int j = half; j > 0; j--) {
 			acc += (*right + *left) * *coef++;
 			left += cols;
 			right -= cols;
@@ -767,8 +738,8 @@ static void transform(Encoder *enc)
 	int cols = 1;
 	int rows = enc->block_len; /* samples per subband at this level */
 	for (int i = 0; i < enc->n_levels; i++) {
-		float *src = enc->level_slots[i];
-		float *dst = enc->level_slots[i + 1];
+		float *src = enc->level_blocks[i];
+		float *dst = enc->level_blocks[i + 1];
 
 		for (int col = 0; col < cols; col++) {
 			transform_column(enc, src + col, dst + col, cols, rows);
@@ -789,9 +760,9 @@ static void transform(Encoder *enc)
  */
 static void carry_overlap(Encoder *enc)
 {
-	int overlap = enc->filter->filter_len - 1;
+	int overlap = enc->filter->size - 1;
 	for (int i = 0; i < enc->n_levels; i++, overlap += overlap) {
-		float *dst = enc->level_slots[i] - overlap;
+		float *dst = enc->level_blocks[i] - overlap;
 		float *src = dst + enc->block_len;
 		memcpy(dst, src, overlap * sizeof(float));
 	}
@@ -832,7 +803,7 @@ static int encode_sample(Encoder *enc)
 		enc->sample_count++;
 	}
 
-	enc->level_slots[0][enc->input_pos++] = enc->volume * (float)sample;
+	enc->level_blocks[0][enc->input_pos++] = enc->volume * (float)sample;
 	if (enc->input_pos == enc->block_len) {
 		return process_block(enc);
 	}
@@ -844,7 +815,7 @@ static int encode_flush(Encoder *enc)
 	/* zero-fill partial block */
 	if (enc->input_pos > 0) {
 		for (; enc->input_pos < enc->block_len; enc->input_pos++) {
-			enc->level_slots[0][enc->input_pos] = 0.0f;
+			enc->level_blocks[0][enc->input_pos] = 0.0f;
 		}
 		int err = process_block(enc);
 		if (err)
@@ -898,7 +869,7 @@ static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *fil
 	enc->n_rows = n_rows;
 	enc->block_len = n_rows * enc->n_columns;
 
-	int half_filter = (filter->filter_len + 1) / 2;
+	int half_filter = (filter->size + 1) / 2;
 	enc->priming_len = half_filter * (enc->n_columns - 1);
 
 	enc->sample_count = 0;
@@ -915,12 +886,12 @@ static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *fil
 	for (int i = 0; i <= levels; i++) {
 		int overlap = 0;
 		if (i != levels) {
-			overlap = (filter->filter_len - 1) << i;
+			overlap = (filter->size - 1) << i;
 		}
 		float *buf = calloc(enc->block_len + overlap, sizeof(float));
 		if (buf == NULL)
 			return ACM_ERR_OTHER;
-		enc->level_slots[i] = buf + overlap;
+		enc->level_blocks[i] = buf + overlap;
 	}
 
 	return 0;
@@ -929,12 +900,12 @@ static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *fil
 static void free_encoder(Encoder *enc)
 {
 	for (int i = 0; i <= enc->n_levels; i++) {
-		if (enc->level_slots[i] != NULL) {
+		if (enc->level_blocks[i] != NULL) {
 			int overlap = 0;
 			if (enc->n_levels != i) {
-				overlap = (enc->filter->filter_len - 1) << i;
+				overlap = (enc->filter->size - 1) << i;
 			}
-			free(enc->level_slots[i] - overlap);
+			free(enc->level_blocks[i] - overlap);
 		}
 	}
 	if (enc->column_format)
@@ -952,9 +923,9 @@ static int write_header(Encoder *enc, uint16_t channels, uint32_t sample_rate)
 			return ACM_ERR_NOT_SEEKABLE;
 		OUTPUT_BITS(enc, fourcc('W', 'A', 'V', 'C'), 32);
 		OUTPUT_BITS(enc, fourcc('V', '1', '.', '0'), 32);
-		OUTPUT_BITS(enc, 0, 32);     // uncompr
-		OUTPUT_BITS(enc, 0, 32);     // compr
-		OUTPUT_BITS(enc, 7 * 4, 32); // hdrlen
+		OUTPUT_BITS(enc, 0, 32);     /* uncompr */
+		OUTPUT_BITS(enc, 0, 32);     /* compr */
+		OUTPUT_BITS(enc, 7 * 4, 32); /* hdrlen */
 		OUTPUT_BITS(enc, channels, 16);
 		OUTPUT_BITS(enc, SAMPLE_WIDTH, 16);
 		OUTPUT_BITS(enc, sample_rate, 32);
@@ -963,8 +934,8 @@ static int write_header(Encoder *enc, uint16_t channels, uint32_t sample_rate)
 	enc->acm_start_ofs = ftell(out);
 	if (enc->acm_start_ofs == -1)
 		return ACM_ERR_NOT_SEEKABLE;
-	OUTPUT_BITS(enc, fourcc(0x97, 0x28, 0x03, 1), 32); // Signature + version
-	OUTPUT_BITS(enc, 0, 32);			   // sample count
+	OUTPUT_BITS(enc, fourcc(0x97, 0x28, 0x03, 1), 32); /* sig(3) + ver(1) */
+	OUTPUT_BITS(enc, 0, 32);			   /* sample count */
 	OUTPUT_BITS(enc, channels, 16);
 	OUTPUT_BITS(enc, sample_rate, 16);
 	OUTPUT_BITS(enc, enc->n_levels, 4);
