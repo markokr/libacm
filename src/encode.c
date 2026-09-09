@@ -167,7 +167,7 @@ static const struct Filter std_filter = {
  * Main encoder state
  */
 
-typedef enum PackerId {
+typedef enum Format {
 	ZeroFill,
 	Binary3 = 3,
 	Binary16 = 16,
@@ -189,7 +189,7 @@ typedef enum PackerId {
 	_Unused_28_,
 
 	Peak5Base11,
-} PackerId;
+} Format;
 
 typedef struct {
 	ReadSampleFunction *reader_func;
@@ -258,14 +258,14 @@ static int zero_follows(Encoder *enc, int row, int col)
 /* w={-3,-2,+2,+3} => {0 .. 3} */
 #define SHIFT_2_3(w) ((w) < 0 ? (w) + 3 : (w))
 
-typedef int (*PackFunc)(Encoder *enc, int col, PackerId fmt);
+typedef int (*PackFunc)(Encoder *enc, int col, Format fmt);
 
-static int pack_zero(Encoder *enc, int col, PackerId fmt)
+static int pack_zero(Encoder *enc, int col, Format fmt)
 {
 	return 0;
 }
 
-static int pack_binary(Encoder *enc, int col, PackerId fmt)
+static int pack_binary(Encoder *enc, int col, Format fmt)
 {
 	int32_t mid = (1 << (fmt - 1));
 	for (int row = 0; row < enc->n_rows; row++) {
@@ -275,7 +275,7 @@ static int pack_binary(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak1_zz(Encoder *enc, int col, PackerId fmt)
+static int pack_peak1_zz(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -297,7 +297,7 @@ static int pack_peak1_zz(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak1_z(Encoder *enc, int col, PackerId fmt)
+static int pack_peak1_z(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -313,24 +313,7 @@ static int pack_peak1_z(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak1_base3(Encoder *enc, int col, PackerId fmt)
-{
-	for (int row = 0; row < enc->n_rows; row++) {
-		int32_t w = codeword(enc, row, col);
-		int32_t packed = w + 1;
-
-		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
-		packed += (w + 1) * 3;
-
-		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
-		packed += (w + 1) * 9;
-
-		OUTPUT_BITS(enc, packed, 5);
-	}
-	return 0;
-}
-
-static int pack_peak2_zz(Encoder *enc, int col, PackerId fmt)
+static int pack_peak2_zz(Encoder *enc, int col, Format fmt)
 {
 	for (int32_t row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -352,7 +335,7 @@ static int pack_peak2_zz(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak2_z(Encoder *enc, int col, PackerId fmt)
+static int pack_peak2_z(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -369,24 +352,7 @@ static int pack_peak2_z(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak2_base5(Encoder *enc, int col, PackerId fmt)
-{
-	for (int row = 0; row < enc->n_rows; row++) {
-		int32_t w = codeword(enc, row, col);
-		int32_t packed = w + 2;
-
-		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
-		packed += (w + 2) * 5;
-
-		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
-		packed += (w + 2) * 25;
-
-		OUTPUT_BITS(enc, packed, 7);
-	}
-	return 0;
-}
-
-static int pack_peak3_zz(Encoder *enc, int col, PackerId fmt)
+static int pack_peak3_zz(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -415,7 +381,7 @@ static int pack_peak3_zz(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak3_z(Encoder *enc, int col, PackerId fmt)
+static int pack_peak3_z(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -438,7 +404,7 @@ static int pack_peak3_z(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak4_zz(Encoder *enc, int col, PackerId fmt)
+static int pack_peak4_zz(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -460,7 +426,7 @@ static int pack_peak4_zz(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak4_z(Encoder *enc, int col, PackerId fmt)
+static int pack_peak4_z(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -477,7 +443,41 @@ static int pack_peak4_z(Encoder *enc, int col, PackerId fmt)
 	return 0;
 }
 
-static int pack_peak5_base11(Encoder *enc, int col, PackerId fmt)
+static int pack_peak1_base3(Encoder *enc, int col, Format fmt)
+{
+	for (int row = 0; row < enc->n_rows; row++) {
+		int32_t w = codeword(enc, row, col);
+		int32_t packed = w + 1;
+
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 1) * 3;
+
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 1) * 9;
+
+		OUTPUT_BITS(enc, packed, 5);
+	}
+	return 0;
+}
+
+static int pack_peak2_base5(Encoder *enc, int col, Format fmt)
+{
+	for (int row = 0; row < enc->n_rows; row++) {
+		int32_t w = codeword(enc, row, col);
+		int32_t packed = w + 2;
+
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 2) * 5;
+
+		w = last_row(enc, row) ? 0 : codeword(enc, ++row, col);
+		packed += (w + 2) * 25;
+
+		OUTPUT_BITS(enc, packed, 7);
+	}
+	return 0;
+}
+
+static int pack_peak5_base11(Encoder *enc, int col, Format fmt)
 {
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
@@ -509,10 +509,10 @@ static const PackFunc packer_list[] = {
 	pack_peak5_base11, NULL, NULL		       /* 29 .. 31 */
 };
 
-static const PackerId map_fmt_zz[] = { ZeroFill, Peak1ZZ, Peak2ZZ, Peak3ZZ, Peak4ZZ };
-static const PackerId map_fmt_z[] = { ZeroFill, Peak1Z, Peak2Z, Peak3Z, Peak4Z };
-static const PackerId map_fmt_flat[] = { ZeroFill, Peak1Base3,	Peak2Base5,
-					 Binary3,  Peak5Base11, Peak5Base11 };
+static const Format map_fmt_zz[] = { ZeroFill, Peak1ZZ, Peak2ZZ, Peak3ZZ, Peak4ZZ };
+static const Format map_fmt_z[] = { ZeroFill, Peak1Z, Peak2Z, Peak3Z, Peak4Z };
+static const Format map_fmt_flat[] = { ZeroFill, Peak1Base3,  Peak2Base5,
+				       Binary3,	 Peak5Base11, Peak5Base11 };
 
 static int calc_nbits(int32_t min_word, int32_t max_word)
 {
@@ -529,9 +529,9 @@ static int calc_nbits(int32_t min_word, int32_t max_word)
 }
 
 static int calc_cost_flat(Encoder *enc, int32_t abs_peak, int32_t min_word, int32_t max_word,
-			  PackerId *res_col_fmt)
+			  Format *res_col_fmt)
 {
-	PackerId fmt;
+	Format fmt;
 	if (abs_peak <= 5) {
 		fmt = map_fmt_flat[abs_peak];
 	} else {
@@ -552,10 +552,10 @@ static int calc_cost_flat(Encoder *enc, int32_t abs_peak, int32_t min_word, int3
 	}
 }
 
-static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, PackerId *res_col_fmt)
+static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, Format *res_col_fmt)
 {
-	int cost_zz = 0;
-	int cost_z = 0;
+	int cost_zz = 0, cost_z = 0;
+
 	for (int row = 0; row < enc->n_rows; row++) {
 		int32_t w = codeword(enc, row, col);
 		if (w == 0) {
@@ -621,11 +621,11 @@ static int estimate_bits(Encoder *enc, int step)
 			abs_peak = -max_word;
 		}
 
-		PackerId fmt;
+		Format fmt;
 		int cost = calc_cost_flat(enc, abs_peak, min_word, max_word, &fmt);
 
 		if (abs_peak >= 1 && abs_peak <= 4) {
-			PackerId fmt_z;
+			Format fmt_z;
 			int cost_z = calc_cost_z(enc, abs_peak, col, &fmt_z);
 			if (cost_z <= cost) {
 				cost = cost_z;
@@ -676,7 +676,7 @@ static int write_bands(Encoder *enc)
 	OUTPUT_BITS(enc, enc->quant_step, 16);
 
 	for (int col = 0; col < enc->n_columns; col++) {
-		PackerId fmt = enc->column_format[col];
+		Format fmt = enc->column_format[col];
 		OUTPUT_BITS(enc, fmt, 5);
 		if (packer_list[fmt] == NULL)
 			return ACM_ERR_CORRUPT;
@@ -726,8 +726,8 @@ static void transform_column(Encoder *enc, const float *src, float *dst, int col
  */
 static void transform(Encoder *enc)
 {
-	int cols = 1;			/* subbands */
-	int rows = enc->block_len;	/* samples per subband */
+	int cols = 1;		   /* subbands */
+	int rows = enc->block_len; /* samples per subband */
 
 	for (int i = 0; i < enc->n_levels; i++) {
 		float *src = enc->level_blocks[i];
@@ -746,14 +746,20 @@ static void transform(Encoder *enc)
  * Encoder high-level logic
  */
 
+/* number of extra samples */
+static int calc_overlap(Encoder *enc, int level)
+{
+	return (level == enc->n_levels) ? 0 : (enc->filter->size - 1) << level;
+}
+
 /*
  * Carry the filter-overlap tail of each level into the next block so the
  * analysis filters stay continuous across block boundaries.
  */
 static void carry_overlap(Encoder *enc)
 {
-	int overlap = enc->filter->size - 1;
-	for (int i = 0; i < enc->n_levels; i++, overlap += overlap) {
+	for (int i = 0; i < enc->n_levels; i++) {
+		int overlap = calc_overlap(enc, i);
 		float *dst = enc->level_blocks[i] - overlap;
 		float *src = dst + enc->block_len;
 		memcpy(dst, src, overlap * sizeof(float));
@@ -855,18 +861,14 @@ static void reader_init(Encoder *enc, ReadSampleFunction *read, void *arg)
 
 static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *filter)
 {
-	enc->filter = filter;
 	enc->n_levels = levels;
 	enc->n_columns = 1 << levels;
 	enc->n_rows = n_rows;
 	enc->block_len = n_rows * enc->n_columns;
 
 	int half_filter = (filter->size + 1) / 2;
+	enc->filter = filter;
 	enc->priming_len = half_filter * (enc->n_columns - 1);
-
-	enc->sample_count = 0;
-	enc->enable_output = 0;
-	enc->reader_eof = 0;
 
 	/* goal: (input_pos + priming_len) % block_len == 0 */
 	enc->input_pos = ((enc->block_len * 100) - enc->priming_len) % enc->block_len;
@@ -876,10 +878,7 @@ static int setup_encoder(Encoder *enc, int levels, int n_rows, const Filter *fil
 		return ACM_ERR_OTHER;
 
 	for (int i = 0; i <= levels; i++) {
-		int overlap = 0;
-		if (i != levels) {
-			overlap = (filter->size - 1) << i;
-		}
+		int overlap = calc_overlap(enc, i);
 		float *buf = calloc(enc->block_len + overlap, sizeof(float));
 		if (buf == NULL)
 			return ACM_ERR_OTHER;
@@ -893,10 +892,7 @@ static void free_encoder(Encoder *enc)
 {
 	for (int i = 0; i <= enc->n_levels; i++) {
 		if (enc->level_blocks[i] != NULL) {
-			int overlap = 0;
-			if (enc->n_levels != i) {
-				overlap = (enc->filter->size - 1) << i;
-			}
+			int overlap = calc_overlap(enc, i);
 			free(enc->level_blocks[i] - overlap);
 		}
 	}
@@ -981,8 +977,8 @@ int32_t acm_encode(ReadSampleFunction *read, void *data, FILE *out, uint16_t cha
 	if (err)
 		goto error;
 
-	enc->volume = volume;
 	enc->bit_budget = (int32_t)(SAMPLE_WIDTH * enc->block_len * comp_ratio);
+	enc->volume = volume;
 	enc->wavc = wavc;
 
 	err = write_header(enc, channels, sample_rate);
