@@ -17,7 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -67,27 +66,11 @@
 
 typedef struct {
 	FILE *out;
-	uint32_t buf;
-	uint32_t count;
+	uint64_t buf;
+	unsigned int count;
 } BitsEncoder;
 
-static int bits_write(BitsEncoder *bits, int32_t val, uint32_t n_bits)
-{
-	assert((n_bits + bits->count) <= 32);
-	bits->buf |= (uint32_t)(val) << bits->count;
-	bits->count += n_bits;
-
-	while (bits->count >= 8) {
-		uint8_t v = bits->buf & 0xFF;
-		if (fputc(v, bits->out) < 0)
-			return ACM_ERR_WRITE_ERR;
-		bits->buf >>= 8;
-		bits->count -= 8;
-	}
-	return 0;
-}
-
-static int bits_flush(BitsEncoder *bits)
+static int bits_flush(BitsEncoder *bits, int partial)
 {
 	while (bits->count >= 8) {
 		uint8_t v = bits->buf & 0xFF;
@@ -98,7 +81,7 @@ static int bits_flush(BitsEncoder *bits)
 		bits->count -= 8;
 	}
 
-	if (bits->count > 0) {
+	if (partial && bits->count > 0) {
 		uint8_t v = bits->buf & 0xFF;
 		if (fputc(v, bits->out) < 0)
 			return ACM_ERR_WRITE_ERR;
@@ -106,6 +89,14 @@ static int bits_flush(BitsEncoder *bits)
 		bits->buf = 0;
 	}
 	return 0;
+}
+
+static int bits_write(BitsEncoder *bits, uint32_t val, unsigned int n_bits)
+{
+	bits->buf |= val << bits->count;
+	bits->count += n_bits;
+
+	return bits->count >= 8 ? bits_flush(bits, 0) : 0;
 }
 
 static void bits_init(BitsEncoder *bits, FILE *out)
@@ -122,7 +113,7 @@ static inline uint32_t fourcc(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
 }
 
 /*
- * Quantiziser for specific step size
+ * Quantizer for specific step size
  */
 
 typedef struct {
@@ -606,7 +597,7 @@ static int calc_cost_z(Encoder *enc, int32_t abs_peak, int col, PackerId *res_co
 static int estimate_bits(Encoder *enc, int step)
 {
 	int quant_power = 3;
-	int bits = 4 + 16 + enc->n_columns * 5; /* header bits */
+	int bits = 4 + 16 + enc->n_columns * 5; /* header */
 
 	quant_init(&enc->quantizer, step);
 
@@ -735,8 +726,9 @@ static void transform_column(Encoder *enc, const float *src, float *dst, int col
  */
 static void transform(Encoder *enc)
 {
-	int cols = 1;
-	int rows = enc->block_len; /* samples per subband at this level */
+	int cols = 1;			/* subbands */
+	int rows = enc->block_len;	/* samples per subband */
+
 	for (int i = 0; i < enc->n_levels; i++) {
 		float *src = enc->level_blocks[i];
 		float *dst = enc->level_blocks[i + 1];
@@ -823,7 +815,7 @@ static int encode_flush(Encoder *enc)
 	}
 
 	/* NOTE: The Interplay one doesn't do this ... */
-	return bits_flush(&enc->bits);
+	return bits_flush(&enc->bits, 1);
 }
 
 static int process_audio(Encoder *enc)
