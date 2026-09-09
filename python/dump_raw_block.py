@@ -27,10 +27,6 @@ class Header(TypedDict):
     acm_cols: int
 
 
-class AcmError(Exception):
-    pass
-
-
 class BitReader:
     def __init__(self, data: bytes) -> None:
         self.data = data + b"\x00"
@@ -60,36 +56,36 @@ def read_header(br: BitReader) -> Header:
 
     if tmp == WAVC_ID:
         if br.get_bits(8) != ord("C"):
-            raise AcmError("not an ACM file (bad WAVC id)")
+            raise ValueError("not an ACM file (bad WAVC id)")
         buf = [br.get_bits(16) for _ in range(12)]
         if buf[0] != 0x3156 or buf[1] != 0x302E:
-            raise AcmError("not an ACM file (bad WAVC header)")
+            raise ValueError("not an ACM file (bad WAVC header)")
         if buf[6] != 28:
-            raise AcmError("not an ACM file (missing WAVC magic 28)")
+            raise ValueError("not an ACM file (missing WAVC magic 28)")
         wavc_file = True
         tmp = br.get_bits(24)
 
     if tmp != ACM_ID:
-        raise AcmError("not an ACM file (bad id)")
+        raise ValueError("not an ACM file (bad id)")
 
     version = br.get_bits(8)
     if version != 1:
-        raise AcmError(f"unsupported ACM version {version}")
+        raise ValueError(f"unsupported ACM version {version}")
 
     total_values = br.get_bits(32)
 
     channels = br.get_bits(16)
     if channels < 1 or channels > 2:
-        raise AcmError(f"bad channel count {channels}")
+        raise ValueError(f"bad channel count {channels}")
 
     rate = br.get_bits(16)
     if rate < 4096:
-        raise AcmError(f"bad sample rate {rate}")
+        raise ValueError(f"bad sample rate {rate}")
 
     acm_level = br.get_bits(4)
     acm_rows = br.get_bits(12)
     if acm_rows == 0:
-        raise AcmError("corrupt header (acm_rows == 0)")
+        raise ValueError("corrupt header (acm_rows == 0)")
 
     return {
         "wavc_file": wavc_file,
@@ -104,7 +100,7 @@ def read_header(br: BitReader) -> Header:
 
 
 def f_bad(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
-    raise AcmError("corrupt block")
+    raise ValueError("corrupt block")
 
 
 def f_zero(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
@@ -228,7 +224,7 @@ def f_peak1_base3(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
     while i < rows:
         b = br.get_bits(5)
         if b >= 3 * 3 * 3:
-            raise AcmError("corrupt block (f_t15 out of range)")
+            raise ValueError("corrupt block")
         tmp = b // 3
         out[i] = b % 3 - 1
         i += 1
@@ -245,7 +241,7 @@ def f_peak2_base5(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
     while i < rows:
         b = br.get_bits(7)
         if b >= 5 * 5 * 5:
-            raise AcmError("corrupt block (f_t27 out of range)")
+            raise ValueError("corrupt block")
         tmp = b // 5
         out[i] = b % 5 - 2
         i += 1
@@ -262,7 +258,7 @@ def f_peak5_base11(br: BitReader, rows: int, fmt: int, out: list[int]) -> None:
     while i < rows:
         b = br.get_bits(7)
         if b >= 11 * 11:
-            raise AcmError("corrupt block (f_t37 out of range)")
+            raise ValueError("corrupt block")
         out[i] = b % 11 - 5
         i += 1
         if i < rows:
@@ -342,11 +338,7 @@ def main() -> int:
     ap.add_argument("--max-blocks", type=int, default=None, help="stop after N blocks")
     args = ap.parse_args()
 
-    try:
-        n = dump(args.input, args.max_blocks)
-    except AcmError as e:
-        print(f"error: {e}")
-        return 1
+    n = dump(args.input, args.max_blocks)
 
     print(f"# dumped {n} blocks")
     return 0
