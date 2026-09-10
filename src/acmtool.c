@@ -266,31 +266,33 @@ write_error:
 	exit(1);
 }
 
-static float calc_ratio(float q)
+static float calc_ratio(float q, float rate)
 {
-	if (q < 0.01)
+	if (q < 1)
 		q = 1;
 	else if (q > 10)
 		q = 10;
 	float raw_bits = 22050 * 2 * 16;
-	float bits = q * 32 * 1000; // 32 .. 320
+	float bits = q * 32 * 1000;
+	//float raw_bits = 44010 * 2 * 16;
+	//float bits = (96 + q * 32) * 1000;
 	return raw_bits / bits;
 }
 
 static void pick_transform(float q, unsigned int *levels, unsigned int *samples)
 {
-	if (q < 2) {
-		*levels = 8;
-		*samples = 32;
-	} else if (q < 5) {
-		*levels = 8;
-		*samples = 16;
-	} else if (q < 8) {
-		*levels = 7;
-		*samples = 16;
-	} else {
+	if (q < 3) {
+		/* 1, 2 */
 		*levels = 6;
-		*samples = 16;
+		*samples = 24;
+	} else if (q < 5) {
+		/* 3, 4 */
+		*levels = 6;
+		*samples = 20;
+	} else {
+		/* 5, 6, 7, 8, 9, 10 */
+		*levels = 6;
+		*samples = 12;
 	}
 }
 
@@ -305,15 +307,15 @@ static void show_quality(void)
 	float mono22 = 22050 * 16;
 	printf("  Q | M22 | S22 | M44 | S44 | LV | SN | BLK  | T22S  | T44S\n");
 	printf("----+-----+-----+-----+-----+----+----+------+-------+--------\n");
-	for (int i = 1; i <= 10; i++) {
+	for (int q = 1; q <= 10; q++) {
 		unsigned int levels, samples;
-		float ratio = calc_ratio(i);
-		pick_transform(i, &levels, &samples);
+		//float ratio = calc_ratio(q);
+		pick_transform(q, &levels, &samples);
 		unsigned int blk = (1 << levels) * samples;
-		printf(" %2d | %3d | %3d | %3d | %3d | %2u | %2u | %4u | %3ums | %3ums\n", i,
-		       kbps(mono22, ratio), kbps(mono22 * 2, ratio), kbps(mono44, ratio),
-		       kbps(mono44 * 2, ratio), levels, samples, blk, 1000 * blk / (22050 * 2),
-		       1000 * blk / (44100 * 2));
+		printf(" %2d | %3d | %3d | %3d | %3d | %2u | %2u | %4u | %3ums | %3ums\n", q,
+		       kbps(mono22, calc_ratio(q, 22050)), kbps(mono22 * 2, calc_ratio(q, 22050)),
+		       kbps(mono44, calc_ratio(q, 44100)), kbps(mono44 * 2, calc_ratio(q, 44100)),
+		       levels, samples, blk, 1000 * blk / (22050 * 2), 1000 * blk / (44100 * 2));
 	}
 }
 
@@ -347,7 +349,7 @@ static void encode_file(const char *fn, const char *fn2)
 
 	if (cf_encoder_quality) {
 		float q = strtof(cf_encoder_quality, NULL);
-		factor = calc_ratio(q);
+		factor = calc_ratio(q, sample_rate);
 		pick_transform(q, &levels, &samples_per_subband);
 	}
 
