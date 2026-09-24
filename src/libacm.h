@@ -37,6 +37,7 @@ extern "C" {
 #define ACM_ERR_CORRUPT (-6)
 #define ACM_ERR_UNEXPECTED_EOF (-7)
 #define ACM_ERR_NOT_SEEKABLE (-8)
+#define ACM_ERR_WRITE_ERR (-9)
 
 typedef struct ACMInfo {
 	unsigned channels; /* number of sound channels (1: mono, 2: stereo */

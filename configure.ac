@@ -15,10 +15,20 @@ AC_PROG_INSTALL
 AC_PROG_LN_S
 AM_PROG_CC_C_O
 
+AC_SEARCH_LIBS([lrintf], [m], [], [
+  AC_MSG_ERROR([unable to find the lrintf() function])
+])
+
 LT_INIT([disable-shared])  dnl Default for local dev
 
 PKG_PROG_PKG_CONFIG
 PKG_INSTALLDIR
+
+PKG_CHECK_MODULES([SNDFILE], [sndfile], [],
+  [AC_MSG_ERROR([*** libsndfile-dev not found, cannot do WAV file I/O ***])])
+
+PKG_CHECK_MODULES([SRC], [samplerate], [],
+  [AC_MSG_ERROR([*** libsamplerate-dev not found, cannot do sample rate conversion ***])])
 
 dnl Check for libao
 have_ao=no

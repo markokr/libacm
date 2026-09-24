@@ -27,14 +27,23 @@
 #include <getopt.h>
 #include <string.h>
 
+#include <sndfile.h>
+
 #include "libacm.h"
+#include "encode.h"
+#include "stream.h"
 
 static const char *version = "acmtool - libacm version " LIBACM_VERSION;
 
-static int cf_raw = 0;
 static int cf_force_chans = 0;
 static int cf_no_output = 0;
 static int cf_quiet = 0;
+static int cf_wavc = 0;
+static const char *cf_encoder_bitrate = NULL;
+static const char *cf_encoder_transform = NULL;
+static const char *cf_encoder_volume = NULL;
+static const char *cf_encoder_quality = NULL;
+static int cf_output_rate = 0;
 
 static void show_header(const char *fn, ACMStream *acm)
 {
@@ -183,102 +192,41 @@ static char *makefn(const char *fn, const char *ext)
 	return dstfn;
 }
 
-#define put_word(p, val) \
-	do { \
-		*p++ = val & 0xFF; \
-		*p++ = (val >> 8) & 0xFF; \
-	} while (0)
-
-#define put_dword(p, val) \
-	do { \
-		*p++ = val & 0xFF; \
-		*p++ = (val >> 8) & 0xFF; \
-		*p++ = (val >> 16) & 0xFF; \
-		*p++ = (val >> 24) & 0xFF; \
-	} while (0)
-
-#define put_data(p, data, len) \
-	do { \
-		memcpy(p, data, len); \
-		p += len; \
-	} while (0)
-
-static int write_wav_header(FILE *f, ACMStream *acm)
+static int output_data(struct Stream *stream, const void *data, size_t size)
 {
-	unsigned char hdr[50], *p = hdr;
-	int res;
-	unsigned datalen = acm_pcm_total(acm) * ACM_WORD * acm_channels(acm);
-
-	int code = 1;
-	unsigned n_channels = acm_channels(acm);
-	unsigned srate = acm_rate(acm);
-	unsigned avg_bps = srate * n_channels * ACM_WORD;
-	unsigned significant_bits = ACM_WORD * 8;
-	unsigned block_align = significant_bits * n_channels / 8;
-	unsigned hdrlen = 16;
-	unsigned wavlen = 4 + 8 + hdrlen + 8 + datalen;
-
-	memset(hdr, 0, sizeof(hdr));
-
-	put_data(p, "RIFF", 4);
-	put_dword(p, wavlen);
-	put_data(p, "WAVEfmt ", 8);
-	put_dword(p, hdrlen);
-	put_word(p, code);
-	put_word(p, n_channels);
-	put_dword(p, srate);
-	put_dword(p, avg_bps);
-	put_word(p, block_align);
-	put_word(p, significant_bits);
-
-	put_data(p, "data", 4);
-	put_dword(p, datalen);
-
-	res = fwrite(hdr, 1, p - hdr, f);
-	if (res != p - hdr)
-		return -1;
-	else
+	const uint8_t *src = data;
+	if (cf_no_output)
 		return 0;
+	for (size_t i = 0; i < size / 2; i++, src += 2) {
+		short sample = ((short)src[1] << 8) | src[0];
+		if (stream_write_short(stream, sample) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 static void decode_file(const char *fn, const char *fn2)
 {
-	ACMStream *acm;
+	ACMStream *acm = NULL;
 	char *buf;
-	int res, res2, buflen, err;
-	FILE *fo = NULL;
+	int res, buflen, err;
 	unsigned int bytes_done = 0, total_bytes;
+	struct Stream *out = NULL;
 
 	err = acm_open_file(&acm, fn, cf_force_chans);
 	if (err < 0) {
 		fprintf(stderr, "%s: %s\n", fn, acm_strerror(err));
-		return;
+		exit(1);
 	}
 
 	if (!cf_no_output) {
-		if (!strcmp(fn2, "-")) {
-			fo = stdout;
-			cf_quiet = 1;
-		} else {
-			fo = fopen(fn2, "wb");
-		}
-		if (fo == NULL) {
-			perror(fn2);
-			acm_close(acm);
-			return;
-		}
+		out = stream_open_write(fn2, acm->info.channels, acm->info.rate, cf_output_rate);
+		if (out == NULL)
+			goto write_error;
 	}
 
 	show_header(fn, acm);
 
-	if ((!cf_raw) && (!cf_no_output)) {
-		if ((err = write_wav_header(fo, acm)) < 0) {
-			perror(fn2);
-			fclose(fo);
-			acm_close(acm);
-			return;
-		}
-	}
 	buflen = 16 * 1024;
 	buf = xmalloc(buflen);
 
@@ -288,17 +236,11 @@ static void decode_file(const char *fn, const char *fn2)
 		if (res == 0)
 			break;
 		if (res > 0) {
-			if (!cf_no_output) {
-				res2 = fwrite(buf, 1, res, fo);
-				if (res2 != res) {
-					fprintf(stderr, "%s: write error\n", fn2);
-					break;
-				}
-			}
+			if (output_data(out, buf, res))
+				goto write_error;
 			bytes_done += res;
 		} else {
-			fprintf(stderr, "%s: %s\n", fn, acm_strerror(res));
-			break;
+			goto read_error;
 		}
 	}
 
@@ -312,18 +254,185 @@ static void decode_file(const char *fn, const char *fn2)
 		} else {
 			bs = buflen;
 		}
-		if (!cf_no_output) {
-			res2 = fwrite(buf, 1, bs, fo);
-			if (res2 != bs)
-				break;
+		if (output_data(out, buf, bs)) {
+			break;
 		}
 		bytes_done += bs;
 	}
-
 	acm_close(acm);
-	if (!cf_no_output)
-		fclose(fo);
+	if (out) {
+		stream_close(out);
+	}
 	free(buf);
+	return;
+read_error:
+	fprintf(stderr, "%s: %s\n", fn, acm_strerror(res));
+	exit(1);
+write_error:
+	stream_perror(out, fn2);
+	exit(1);
+}
+
+/*
+ * Encoder
+ */
+
+static float calc_ratio(float q, int rate)
+{
+	float raw_bits = 22050 * 2 * 16;
+	float bits = q * 32 * 1000;
+	//float mult = rate / (22050.0f * 1.5);
+	//float raw_bits = 44100 * 2 * 16;
+	//float bits = (96 + q * 32) * 1000;
+	return raw_bits / bits;
+}
+
+static int between(int v, int min, int max)
+{
+	if (v < min) {
+		return min;
+	} else if (v > max) {
+		return max;
+	}
+	return v;
+}
+
+static void pick_transform(int q, unsigned int *levels, unsigned int *samples)
+{
+	*levels = 6;
+	*samples = 22 - q; // 22 .. 12
+}
+
+static void pick_transform_from_ratio(float ratio, unsigned int *levels, unsigned int *samples)
+{
+	float raw22s = 22050 * 2 * 16;
+	float br22s = raw22s / ratio;
+	int slot = between(br22s / (32 * 1000), 1, 10);
+
+	*levels = 6;
+	*samples = 22 - slot; // 22 .. 12
+}
+
+static int kbps(float bits, float ratio)
+{
+	return (int)(bits / (ratio * 1000));
+}
+
+static void show_quality(void)
+{
+	float mono44 = 44100 * 16;
+	float mono22 = 22050 * 16;
+	if (1) {
+		printf("  Q | S22 | M44 | T22   | T44   | BLK22      | BLK44\n");
+		printf("----+-----+-----+-------+-------+------------+------------\n");
+		for (int q = 1; q <= 10; q++) {
+			float ratio22 = calc_ratio(q, 22050);
+			float ratio44 = calc_ratio(q, 44100);
+
+			unsigned int levels22, samples22, levels44, samples44;
+			pick_transform_from_ratio(ratio22, &levels22, &samples22);
+			pick_transform_from_ratio(ratio44, &levels44, &samples44);
+			unsigned int blk22 = (1 << levels22) * samples22;
+			unsigned int blk44 = (1 << levels44) * samples44;
+			printf(" %2d | %3d | %3d |"
+			       " %2u/%2u | %2u/%2u |"
+			       " %4u/%3ums | %4u/%3ums\n",
+			       q, kbps(mono22 * 2, ratio22), kbps(mono44 * 2, ratio44),
+			       // transform
+			       levels22, samples22, levels44, samples44,
+			       // block22
+			       blk22, 1000 * blk22 / (22050 * 2),
+			       // block44
+			       blk44, 1000 * blk44 / (44100 * 2));
+		}
+	} else {
+		printf("  Q | S22 | S44 | T22   | SN | BLK  | T22S  | T44S\n");
+		printf("----+-----+-----+----+----+------+-------+--------\n");
+		for (int q = 1; q <= 10; q++) {
+			unsigned int levels, samples;
+			pick_transform(q, &levels, &samples);
+			unsigned int blk = (1 << levels) * samples;
+			float ratio22 = calc_ratio(q, 22050);
+			float ratio44 = calc_ratio(q, 44100);
+			printf(" %2d | %3d | %3d | %2u | %2u | %4u | %3ums | "
+			       "%3ums\n",
+			       q, kbps(mono22 * 2, ratio22), kbps(mono44 * 2, ratio44), levels,
+			       samples, blk, 1000 * blk / (22050 * 2), 1000 * blk / (44100 * 2));
+		}
+	}
+}
+
+static int read_sample(void *arg, int16_t *sample)
+{
+	struct Stream *stream = arg;
+	return stream_read_short(stream, sample);
+}
+
+static void encode_file(const char *fn, const char *fn2)
+{
+	if (!cf_quiet)
+		printf("%s -> %s\n", fn, fn2);
+
+	struct Stream *stream = stream_open_read(fn, cf_output_rate);
+	if (!stream) {
+		stream_perror(stream, fn);
+		exit(1);
+	}
+
+	float volume = 0.97;
+	if (cf_encoder_volume) {
+		volume = strtof(cf_encoder_volume, NULL);
+	}
+
+	uint32_t sample_rate = stream_output_rate(stream);
+	uint16_t nchannels = stream_channels(stream);
+
+	float factor = sample_rate <= 22050 ? 4.0f : 8.0f;
+	unsigned int levels = 6;
+	unsigned int samples_per_subband = 16;
+
+	if (cf_encoder_quality) {
+		float q = strtof(cf_encoder_quality, NULL);
+		if (q < 1) {
+			q = 1;
+		} else if (q > 10) {
+			q = 10;
+		}
+		factor = calc_ratio(q, sample_rate);
+		pick_transform(q, &levels, &samples_per_subband);
+	}
+
+	if (cf_encoder_bitrate) {
+		long rate = strtol(cf_encoder_bitrate, NULL, 10);
+		if (rate > 0) {
+			float goal = rate * 1000;
+			float raw = nchannels * sample_rate * 2 * 8;
+			factor = (goal < raw) ? raw / goal : 1.0f;
+		}
+	}
+
+	if (cf_encoder_transform) {
+		int res = sscanf(cf_encoder_transform, "%u/%u", &levels, &samples_per_subband);
+		if (res != 2) {
+			fprintf(stderr, "invalid transform arg: %s\n", cf_encoder_transform);
+			exit(1);
+		}
+	}
+
+	FILE *out = fopen(fn2, "wb");
+	if (!out) {
+		perror(fn2);
+		exit(1);
+	}
+
+	int err = acm_encode(read_sample, stream, out, nchannels, sample_rate, volume, levels,
+			     samples_per_subband, 1.0f / factor, cf_wavc);
+	if (err != 0) {
+		fprintf(stderr, "%s: encoding failed: err=%d\n", fn, err);
+		exit(1);
+	}
+	stream_close(stream);
+	fclose(out);
 }
 
 /*
@@ -395,42 +504,61 @@ static void usage(int err)
 {
 	printf("%s\n", version);
 	printf("Play:   acmtool -p [-q][-m|-s] acmfile [acmfile ...]\n");
-	printf("Decode: acmtool -d [-q][-m|-s] [-r|-n] -o wavfile acmfile\n");
-	printf("        acmtool -d [-q][-m|-s] [-r|-n] acmfile [acmfile ...]\n");
+	printf("Decode: acmtool -d [-q][-m|-s][-r R] -o wavfile acmfile\n");
+	printf("        acmtool -d [-q][-m|-s][-r R] [-n] acmfile [acmfile ...]\n");
+	printf("Encode: acmtool -e [-q][-w][-b N][-r R] -o acmfile wavfile\n");
+	printf("        acmtool -e [-q][-w][-b N][-r R] wavfile [wavfile ...]\n");
 	printf("Other:  acmtool -i acmfile [acmfile ...]\n");
 	printf("        acmtool -M|-S acmfile [acmfile ...]\n");
 	printf("Commands:\n");
 	printf("  -p     play file(s)\n");
 	printf("  -d     decode audio into WAV files\n");
+	printf("  -e     encode WAV files into ACM\n");
 	printf("  -i     show info about ACM files\n");
 	printf("  -M     modify ACM header to have 1 channel\n");
 	printf("  -S     modify ACM header to have 2 channels\n");
 	printf("Switches:\n");
 	printf("  -m     force mono\n");
 	printf("  -s     force stereo (default)\n");
-	printf("  -r     raw output - no wav header\n");
+	printf("  -w     encode to WAVC format\n");
+	printf("  -b N   encode max bitrate in kbps\n");
+	printf("  -T L/S transform setting levels/samples (default 7/16)\n");
+	printf("  -V M   encoder volume change (default 0.97)\n");
+	printf("  -r R   change sample rate\n");
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
 	printf("  -o FN  output to file, can be used if single source file\n");
 	exit(err);
 }
 
+typedef void (*ProcessFunc)(const char *fn, const char *fn2);
+
 int main(int argc, char *argv[])
 {
 	int c, i;
 	char *fn, *fn2 = NULL;
 	int cmd_decode = 0;
+	int cmd_encode = 0;
 	int cmd_chg_channels = 0;
 	int cmd_info = 0, cmd_play = 0;
 	int cf_set_chans = 0;
+	ProcessFunc process_func = NULL;
+	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "pdiMSqhrmsnvo:")) != -1) {
+	while ((c = getopt(argc, argv, "MQ:ST:V:Xb:dehimno:pqr:svw")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
 			break;
 		case 'd':
 			cmd_decode = 1;
+			process_func = decode_file;
+			target_ext = ".wav";
+			break;
+		case 'e':
+			cmd_encode = 1;
+			process_func = encode_file;
+			target_ext = ".acm";
 			break;
 		case 'i':
 			cmd_info = 1;
@@ -455,8 +583,20 @@ int main(int argc, char *argv[])
 		case 's':
 			cf_force_chans = 2;
 			break;
+		case 'w':
+			cf_wavc = 1;
+			break;
+		case 'b':
+			cf_encoder_bitrate = optarg;
+			break;
+		case 'T':
+			cf_encoder_transform = optarg;
+			break;
+		case 'V':
+			cf_encoder_volume = optarg;
+			break;
 		case 'r':
-			cf_raw = 1;
+			cf_output_rate = atoi(optarg);
 			break;
 		case 'n':
 			cf_no_output = 1;
@@ -464,6 +604,12 @@ int main(int argc, char *argv[])
 		case 'o':
 			fn2 = optarg;
 			break;
+		case 'Q':
+			cf_encoder_quality = optarg;
+			break;
+		case 'X':
+			show_quality();
+			return 0;
 		case 'v':
 			printf("%s\n", version);
 			exit(0);
@@ -472,7 +618,7 @@ int main(int argc, char *argv[])
 			usage(1);
 		}
 	}
-	i = cmd_chg_channels + cmd_info + cmd_decode + cmd_play;
+	i = cmd_chg_channels + cmd_info + cmd_decode + cmd_play + cmd_encode;
 	if (i < 1) {
 		fprintf(stderr, "need command, use -h for help\n");
 		exit(1);
@@ -512,18 +658,18 @@ int main(int argc, char *argv[])
 	}
 
 	/* regular converting */
-	if (optind == argc)
+	if (optind == argc || !(cmd_encode || cmd_decode))
 		usage(1);
 	if (fn2) {
 		if (optind + 1 != argc)
 			usage(1);
 		fn = argv[optind];
-		decode_file(fn, fn2);
+		process_func(fn, fn2);
 	} else {
 		while (optind < argc) {
 			fn = argv[optind++];
-			fn2 = makefn(fn, cf_raw ? ".raw" : ".wav");
-			decode_file(fn, fn2);
+			fn2 = makefn(fn, target_ext);
+			process_func(fn, fn2);
 			free(fn2);
 		}
 	}

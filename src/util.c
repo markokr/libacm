@@ -44,6 +44,7 @@ static const char *_errlist[] = {
 	[-ACM_ERR_UNEXPECTED_EOF] = "Unexpected EOF",
 	[-ACM_ERR_NOT_SEEKABLE] = "Stream not seekable",
 };
+
 /* clang-format on */
 
 const char *acm_strerror(int err)
