@@ -1,5 +1,12 @@
 # NEWS
 
+## dev
+
+* encoder: Encoder!
+* stream: Audio I/O using libsndfile and libsamplerate.
+* acmtool: New switches: encode (-e), convert sample rate (-r)
+* acmtool: Drop support for raw files and stdout output.
+
 ## Version 1.5
 
 * decode: limit total samples
