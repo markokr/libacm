@@ -24,8 +24,8 @@ struct Stream;
 struct Stream *stream_open_read(const char *fn, int output_rate);
 struct Stream *stream_open_write(const char *fn, int nchan, int input_rate, int output_rate);
 
-struct Stream *stream_sf_open_read(SNDFILE *sf, int output_rate);
-struct Stream *stream_sf_open_write(SNDFILE *sf, int input_rate);
+struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate);
+struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate);
 
 void stream_close(struct Stream *stream);
 

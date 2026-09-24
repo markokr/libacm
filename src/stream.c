@@ -313,7 +313,7 @@ static int write_flush(struct Stream *stream, int final)
  * Public API
  */
 
-struct Stream *stream_sf_open_read(SNDFILE *sf, int output_rate)
+struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate)
 {
 	SF_INFO info;
 
@@ -343,15 +343,17 @@ struct Stream *stream_sf_open_read(SNDFILE *sf, int output_rate)
 	return stream;
 }
 
-struct Stream *stream_sf_open_write(SNDFILE *sf, int input_rate)
+struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate)
 {
 	SF_INFO info;
+
 	memset(&info, 0, sizeof(info));
 	int err = sf_command(sf, SFC_GET_CURRENT_SF_INFO, &info, sizeof(info));
 	if (err) {
 		sf_close(sf);
 		return NULL;
 	}
+
 	struct Stream *stream = calloc(1, sizeof(struct Stream));
 	if (!stream) {
 		sf_close(sf);
@@ -382,7 +384,7 @@ struct Stream *stream_open_read(const char *fn, int output_rate)
 	SNDFILE *sf = sf_open(fn, SFM_READ, &info);
 	if (!sf)
 		return NULL;
-	return stream_sf_open_read(sf, output_rate);
+	return stream_open_read_sf(sf, output_rate);
 }
 
 struct Stream *stream_open_write(const char *fn, int nchan, int input_rate, int output_rate)
@@ -396,7 +398,7 @@ struct Stream *stream_open_write(const char *fn, int nchan, int input_rate, int 
 	SNDFILE *sf = sf_open(fn, SFM_WRITE, &info);
 	if (!sf)
 		return NULL;
-	return stream_sf_open_write(sf, input_rate);
+	return stream_open_write_sf(sf, input_rate);
 }
 
 int stream_channels(struct Stream *stream)
