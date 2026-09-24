@@ -20,18 +20,47 @@ LT_INIT([disable-shared])  dnl Default for local dev
 PKG_PROG_PKG_CONFIG
 PKG_INSTALLDIR
 
-dnl Check for libao
-have_ao=no
-PKG_CHECK_MODULES([AO], [ao], [have_ao=yes],
-   [AC_MSG_WARN([*** libao-dev not found, audio output disabled ***])])
-if test "$have_ao" = "yes"; then
-  AC_DEFINE([HAVE_AO], 1, [Define 1 if libao is usable])
-fi
-AM_CONDITIONAL(USE_LIBAO, test "$have_ao" = "yes")
+old_LIBS="$LIBS"
+AC_SEARCH_LIBS([lrintf], [m], [
+  STREAM_LIBS="$LIBS"
+  LIBS="$old_LIBS"
+  AC_SUBST([STREAM_LIBS])
+], [
+  AC_MSG_ERROR([[unable to find the lrintf() function]])
+])
+
+PKG_CHECK_MODULES([SNDFILE], [sndfile >= 1.0.26], [
+  have_sndfile=yes
+  AC_DEFINE([HAVE_SNDFILE], 1, [Defined if libsndfile is usable])
+  if $PKG_CONFIG --atleast-version 1.1 sndfile; then
+    AC_DEFINE([HAVE_SNDFILE_1_1], 1, [Defined if libsndfile is version 1.1.0+])
+  fi
+], [
+  have_sndfile=no
+  AC_MSG_ERROR([[*** libsndfile-dev not found, cannot do WAV file I/O ***]])
+])
+
+PKG_WITH_MODULES([SAMPLERATE], [samplerate], [
+  have_samplerate=yes
+  AC_DEFINE([HAVE_SAMPLERATE], 1, [Defined if libsamplerate is usable])
+], [
+  have_samplerate=no
+  AC_MSG_WARN([[*** libsamplerate-dev not available, cannot do sample rate conversion ***]])
+])
+
+PKG_WITH_MODULES([AO], [ao], [
+  have_ao=yes
+  AC_DEFINE([HAVE_AO], 1, [Defined if libao is usable])
+], [
+  have_ao=no
+  AC_MSG_WARN([[*** libao-dev not available, audio output disabled ***"]])
+])
 
 AC_CONFIG_FILES([Makefile src/Makefile libacm.pc])
 AC_OUTPUT
 
 echo ""
-echo "Audio output:         $have_ao"
+echo "libsndfile:    $have_sndfile"
+echo "libsamplerate: $have_samplerate"
+echo "libao:         $have_ao"
 echo ""
