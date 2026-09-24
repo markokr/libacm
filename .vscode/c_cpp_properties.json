@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "name": "C11",
+            "defines": ["HAVE_CONFIG_H=1"],
+            "includePath": ["${workspaceFolder}"],
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        }
+    ],
+    "version": 4
+}

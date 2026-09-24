@@ -1,0 +1,4 @@
+{
+  "makefile.safeCommands": ["test"],
+  "editor.formatOnSave": true
+}
