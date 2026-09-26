@@ -15,5 +15,5 @@ libacm_la_LDFLAGS = -version-info 1:0:0 -no-undefined
 # acmtool
 noinst_HEADERS = encode.h stream.h
 acmtool_SOURCES = acmtool.c encode.c stream.c
-acmtool_CFLAGS = $(AM_CFLAGS) $(AO_CFLAGS) $(SNDFILE_CFLAGS) $(SRC_CFLAGS)
-acmtool_LDADD = libacm.la $(AO_LIBS) $(SNDFILE_LIBS) $(SRC_LIBS)
+acmtool_CFLAGS = $(AM_CFLAGS) $(SNDFILE_CFLAGS) $(SRC_CFLAGS) $(AO_CFLAGS)
+acmtool_LDADD = libacm.la $(SNDFILE_LIBS) $(SRC_LIBS) $(AO_LIBS) $(STREAM_LIBS)

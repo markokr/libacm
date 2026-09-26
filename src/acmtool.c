@@ -44,6 +44,7 @@ static const char *cf_encoder_transform = NULL;
 static const char *cf_encoder_volume = NULL;
 static const char *cf_encoder_quality = NULL;
 static int cf_output_rate = 0;
+static const char *cf_output_format = NULL;
 
 static void show_header(const char *fn, ACMStream *acm)
 {
@@ -182,12 +183,13 @@ static void play_file(const char *fn)
 static char *makefn(const char *fn, const char *ext)
 {
 	char *dstfn, *p, *slash;
-	dstfn = xmalloc(strlen(fn) + strlen(ext) + 2);
+	dstfn = xmalloc(strlen(fn) + strlen(ext) + 3);
 	strcpy(dstfn, fn);
 	slash = strrchr(dstfn, '/');
 	p = strrchr(slash ? slash : dstfn, '.');
 	if (p != NULL)
 		*p = 0;
+	strcat(dstfn, ".");
 	strcat(dstfn, ext);
 	return dstfn;
 }
@@ -220,7 +222,13 @@ static void decode_file(const char *fn, const char *fn2)
 	}
 
 	if (!cf_no_output) {
-		out = stream_open_write(fn2, acm->info.channels, acm->info.rate, cf_output_rate);
+		int format = stream_guess_format(cf_output_format, fn2);
+		if (!format) {
+			fprintf(stderr, "cannot guess file format: %s\n", fn2);
+			exit(1);
+		}
+		out = stream_open_write(fn2, format, acm->info.channels, acm->info.rate,
+					cf_output_rate);
 		if (out == NULL)
 			goto write_error;
 	}
@@ -528,6 +536,7 @@ static void usage(int err)
 	printf("  -q     be quiet\n");
 	printf("  -n     no output - for benchmarking\n");
 	printf("  -o FN  output to file, can be used if single source file\n");
+	printf("  -O fmt set output file format (wav,au,alac,flac)");
 	exit(err);
 }
 
@@ -545,7 +554,7 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "MQ:ST:V:Xb:dehimno:pqr:svw")) != -1) {
+	while ((c = getopt(argc, argv, "MO:Q:ST:V:Xb:dehimno:pqr:svw")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -553,12 +562,12 @@ int main(int argc, char *argv[])
 		case 'd':
 			cmd_decode = 1;
 			process_func = decode_file;
-			target_ext = ".wav";
+			target_ext = NULL;
 			break;
 		case 'e':
 			cmd_encode = 1;
 			process_func = encode_file;
-			target_ext = ".acm";
+			target_ext = "acm";
 			break;
 		case 'i':
 			cmd_info = 1;
@@ -603,6 +612,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'o':
 			fn2 = optarg;
+			break;
+		case 'O':
+			cf_output_format = optarg;
 			break;
 		case 'Q':
 			cf_encoder_quality = optarg;
@@ -666,6 +678,10 @@ int main(int argc, char *argv[])
 		fn = argv[optind];
 		process_func(fn, fn2);
 	} else {
+		if (!cf_output_format)
+			cf_output_format = "wav";
+		if (!target_ext)
+			target_ext = cf_output_format;
 		while (optind < argc) {
 			fn = argv[optind++];
 			fn2 = makefn(fn, target_ext);

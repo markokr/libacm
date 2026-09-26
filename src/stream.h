@@ -21,8 +21,11 @@
 
 struct Stream;
 
+int stream_guess_format(const char *type, const char *fn);
+
 struct Stream *stream_open_read(const char *fn, int output_rate);
-struct Stream *stream_open_write(const char *fn, int nchan, int input_rate, int output_rate);
+struct Stream *stream_open_write(const char *fn, int format, int nchan, int input_rate,
+				 int output_rate);
 
 struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate);
 struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate);
@@ -34,8 +37,11 @@ int stream_input_rate(struct Stream *stream);
 int stream_output_rate(struct Stream *stream);
 
 int stream_read_short(struct Stream *stream, short *sample);
+int stream_read_int(struct Stream *stream, int *sample);
 int stream_read_float(struct Stream *stream, float *sample);
+
 int stream_write_short(struct Stream *stream, short sample);
+int stream_write_int(struct Stream *stream, int sample);
 int stream_write_float(struct Stream *stream, float sample);
 
 void stream_perror(struct Stream *stream, const char *desc);
