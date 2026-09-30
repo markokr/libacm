@@ -26,31 +26,34 @@ AC_SEARCH_LIBS([lrintf], [m], [
   LIBS="$old_LIBS"
   AC_SUBST([STREAM_LIBS])
 ], [
-  AC_MSG_ERROR([unable to find the lrintf() function])
+  AC_MSG_ERROR([[unable to find the lrintf() function]])
 ])
 
-PKG_CHECK_MODULES([SNDFILE], [sndfile], [
+PKG_CHECK_MODULES([SNDFILE], [sndfile >= 1.0.26], [
   have_sndfile=yes
   AC_DEFINE([HAVE_SNDFILE], 1, [Defined if libsndfile is usable])
+  if $PKG_CONFIG --atleast-version 1.1 sndfile; then
+    AC_DEFINE([HAVE_SNDFILE_1_1], 1, [Defined if libsndfile is version 1.1.0+])
+  fi
 ], [
   have_sndfile=no
-  AC_MSG_ERROR([*** libsndfile-dev not found, cannot do WAV file I/O ***])
+  AC_MSG_ERROR([[*** libsndfile-dev not found, cannot do WAV file I/O ***]])
 ])
 
-PKG_CHECK_MODULES([SRC], [samplerate], [
+PKG_WITH_MODULES([SAMPLERATE], [samplerate], [
   have_samplerate=yes
   AC_DEFINE([HAVE_SAMPLERATE], 1, [Defined if libsamplerate is usable])
 ], [
   have_samplerate=no
-  AC_MSG_WARN([*** libsamplerate-dev not found, cannot do sample rate conversion ***])
+  AC_MSG_WARN([[*** libsamplerate-dev not available, cannot do sample rate conversion ***]])
 ])
 
-PKG_CHECK_MODULES([AO], [ao], [
+PKG_WITH_MODULES([AO], [ao], [
   have_ao=yes
   AC_DEFINE([HAVE_AO], 1, [Defined if libao is usable])
 ], [
   have_ao=no
-  AC_MSG_WARN([*** libao-dev not found, audio output disabled ***])
+  AC_MSG_WARN([[*** libao-dev not available, audio output disabled ***"]])
 ])
 
 AC_CONFIG_FILES([Makefile src/Makefile libacm.pc])

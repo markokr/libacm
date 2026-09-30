@@ -379,11 +379,11 @@ static const struct LookupCode FMT_MAP[] = {
 	{ "rf64", SF_FORMAT_RF64 | SF_FORMAT_PCM_16 },
 	{ "w64", SF_FORMAT_W64 | SF_FORMAT_PCM_16 },
 	{ "wav", SF_FORMAT_WAV | SF_FORMAT_PCM_16 }, // 32bit
-
+#ifdef HAVE_SNDFILE_1_1
 	{ "mp3", SF_FORMAT_MPEG | SF_FORMAT_MPEG_LAYER_III },
 	{ "ogg", SF_FORMAT_OGG | SF_FORMAT_VORBIS },
 	{ "opus", SF_FORMAT_OGG | SF_FORMAT_OPUS },
-
+#endif
 	{ NULL, 0 },
 };
 
