@@ -30,6 +30,8 @@ struct Stream *stream_open_write(const char *fn, int format, int nchan, int inpu
 struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate);
 struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate);
 
+const char *stream_error(struct Stream *stream);
+
 void stream_close(struct Stream *stream);
 
 int stream_channels(struct Stream *stream);

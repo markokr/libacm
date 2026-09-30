@@ -69,6 +69,17 @@ struct Stream {
 #define DO_CONVERT(stream) (0)
 #endif
 
+const char *stream_error(struct Stream *stream)
+{
+	return stream->conv_error;
+}
+
+static int set_error(struct Stream *stream, const char *error)
+{
+	stream->conv_error = error;
+	return -1;
+}
+
 /*
  * Float conversion
  */
@@ -254,14 +265,11 @@ static int setup_converter(struct Stream *stream)
 	if (fbuf_init(&stream->output, out_frames * stream->channels) < 0)
 		return -1;
 	stream->conv_state = src_new(CONV_MODE, stream->channels, &conv_err);
-	if (!stream->conv_state) {
-		stream->conv_error = src_strerror(conv_err);
-		return -1;
-	}
+	if (!stream->conv_state)
+		return set_error(stream, src_strerror(conv_err));
 	return 0;
 #else
-	stream->conv_error = "libsamplerate not available";
-	return -1;
+	return set_error(stream, "libsamplerate not available");
 #endif
 }
 
@@ -286,8 +294,7 @@ static int convert_rate(struct Stream *stream, int final)
 
 	int err = src_process(stream->conv_state, &data);
 	if (err != 0) {
-		stream->conv_error = src_strerror(err);
-		return -1;
+		return set_error(stream, src_strerror(err));
 	}
 
 	inp->read_pos += data.input_frames_used * stream->channels;
