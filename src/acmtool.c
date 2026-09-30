@@ -678,10 +678,19 @@ int main(int argc, char *argv[])
 		fn = argv[optind];
 		process_func(fn, fn2);
 	} else {
+		char tmpext[8];
 		if (!cf_output_format)
 			cf_output_format = "wav";
-		if (!target_ext)
-			target_ext = cf_output_format;
+		if (!target_ext) {
+			char *p = strchr(cf_output_format, ':');
+			if (p && p - cf_output_format < sizeof(tmpext)) {
+				memset(tmpext, 0, sizeof(tmpext));
+				memcpy(tmpext, cf_output_format, p - cf_output_format);
+				target_ext = tmpext;
+			} else {
+				target_ext = cf_output_format;
+			}
+		}
 		while (optind < argc) {
 			fn = argv[optind++];
 			fn2 = makefn(fn, target_ext);
