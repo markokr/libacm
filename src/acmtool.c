@@ -554,7 +554,7 @@ int main(int argc, char *argv[])
 	ProcessFunc process_func = NULL;
 	const char *target_ext = NULL;
 
-	while ((c = getopt(argc, argv, "MO:Q:ST:V:Xb:dehimno:pqr:svw")) != -1) {
+	while ((c = getopt(argc, argv, "F:MQ:ST:V:Xb:dehimno:pqr:svw")) != -1) {
 		switch (c) {
 		case 'h':
 			usage(0);
@@ -613,7 +613,7 @@ int main(int argc, char *argv[])
 		case 'o':
 			fn2 = optarg;
 			break;
-		case 'O':
+		case 'F':
 			cf_output_format = optarg;
 			break;
 		case 'Q':
