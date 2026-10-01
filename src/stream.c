@@ -69,14 +69,13 @@ struct Stream {
 #define DO_CONVERT(stream) (0)
 #endif
 
-const char *stream_error(struct Stream *stream)
-{
-	return stream->conv_error;
-}
+static const char *last_error = NULL;
 
 static int set_error(struct Stream *stream, const char *error)
 {
-	stream->conv_error = error;
+	if (stream)
+		stream->conv_error = error;
+	last_error = error;
 	return -1;
 }
 
@@ -370,22 +369,33 @@ struct LookupCode {
 	int value;
 };
 
-static const struct LookupCode STYPE_MAP[] = {
-	{ "s8", SF_FORMAT_PCM_S8 },  { "u8", SF_FORMAT_PCM_U8 },
-	{ "s16", SF_FORMAT_PCM_16 }, { "s24", SF_FORMAT_PCM_24 },
-	{ "s32", SF_FORMAT_PCM_32 }, { "f32", SF_FORMAT_FLOAT },
-	{ "f64", SF_FORMAT_DOUBLE }, { NULL, 0 },
+static const struct LookupCode SAMPLE_FMT_MAP[] = {
+	{ "u8", SF_FORMAT_PCM_U8 },
+	{ "s8", SF_FORMAT_PCM_S8 },
+	{ "s16", SF_FORMAT_PCM_16 },
+	{ "s24", SF_FORMAT_PCM_24 },
+	{ "s32", SF_FORMAT_PCM_32 },
+	/* float */
+	{ "f32", SF_FORMAT_FLOAT },
+	{ "f64", SF_FORMAT_DOUBLE },
+	/* weird */
+	{ "alaw", SF_FORMAT_ALAW },
+	{ "ulaw", SF_FORMAT_ULAW },
+	{ NULL, 0 },
 };
 
-static const struct LookupCode FMT_MAP[] = {
-	{ "aiff", SF_FORMAT_AIFF | SF_FORMAT_PCM_16 }, // 32bit
-	{ "alac", SF_FORMAT_CAF | SF_FORMAT_ALAC_16 },
-	{ "au", SF_FORMAT_AU | SF_FORMAT_PCM_16 }, // 32bit
+static const struct LookupCode FILE_FMT_MAP[] = {
+	/* old 32-bit formats */
+	{ "aiff", SF_FORMAT_AIFF | SF_FORMAT_PCM_16 },
+	{ "au", SF_FORMAT_AU | SF_FORMAT_PCM_16 },
+	{ "w32", SF_FORMAT_WAV | SF_FORMAT_PCM_16 },
+	/* newer formats */
 	{ "caf", SF_FORMAT_CAF | SF_FORMAT_PCM_16 },
-	{ "flac", SF_FORMAT_FLAC | SF_FORMAT_PCM_16 },
-	{ "rf64", SF_FORMAT_RF64 | SF_FORMAT_PCM_16 },
+	{ "wav", SF_FORMAT_RF64 | SF_FORMAT_PCM_16 },
 	{ "w64", SF_FORMAT_W64 | SF_FORMAT_PCM_16 },
-	{ "wav", SF_FORMAT_WAV | SF_FORMAT_PCM_16 }, // 32bit
+	/* compressed */
+	{ "alac", SF_FORMAT_CAF | SF_FORMAT_ALAC_16 },
+	{ "flac", SF_FORMAT_FLAC | SF_FORMAT_PCM_16 },
 #ifdef HAVE_SNDFILE_1_1
 	{ "mp3", SF_FORMAT_MPEG | SF_FORMAT_MPEG_LAYER_III },
 	{ "ogg", SF_FORMAT_OGG | SF_FORMAT_VORBIS },
@@ -457,12 +467,12 @@ int stream_guess_format(const char *type, const char *fn)
 	if (sep && sep - type < (int)sizeof(tmp)) {
 		memset(tmp, 0, sizeof(tmp));
 		memcpy(tmp, type, sep - type);
-		format = lookup_code(FMT_MAP, tmp);
-		subformat = lookup_code(STYPE_MAP, sep + 1);
+		format = lookup_code(FILE_FMT_MAP, tmp);
+		subformat = lookup_code(SAMPLE_FMT_MAP, sep + 1);
 		if (!subformat)
 			return 0;
 	} else {
-		format = lookup_code(FMT_MAP, type);
+		format = lookup_code(FILE_FMT_MAP, type);
 	}
 
 	return format_fixups(format, subformat);
@@ -475,12 +485,14 @@ struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate)
 	memset(&info, 0, sizeof(info));
 	int err = sf_command(sf, SFC_GET_CURRENT_SF_INFO, &info, sizeof(info));
 	if (err) {
+		set_error(NULL, sf_strerror(sf));
 		sf_close(sf);
 		return NULL;
 	}
 
 	struct Stream *stream = calloc(1, sizeof(struct Stream));
 	if (!stream) {
+		set_error(NULL, strerror(errno));
 		sf_close(sf);
 		return NULL;
 	}
@@ -489,6 +501,7 @@ struct Stream *stream_open_read_sf(SNDFILE *sf, int output_rate)
 	stream->input_rate = info.samplerate;
 	stream->output_rate = output_rate > 0 ? output_rate : stream->input_rate;
 	stream->writing = 0;
+	last_error = NULL;
 
 	if (setup_converter(stream) < 0) {
 		stream_close(stream);
@@ -505,12 +518,14 @@ struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate)
 	memset(&info, 0, sizeof(info));
 	int err = sf_command(sf, SFC_GET_CURRENT_SF_INFO, &info, sizeof(info));
 	if (err) {
+		set_error(NULL, sf_strerror(sf));
 		sf_close(sf);
 		return NULL;
 	}
 
 	struct Stream *stream = calloc(1, sizeof(struct Stream));
 	if (!stream) {
+		set_error(NULL, strerror(errno));
 		sf_close(sf);
 		return NULL;
 	}
@@ -519,6 +534,7 @@ struct Stream *stream_open_write_sf(SNDFILE *sf, int input_rate)
 	stream->input_rate = input_rate > 0 ? input_rate : info.samplerate;
 	stream->output_rate = info.samplerate;
 	stream->writing = 1;
+	last_error = NULL;
 
 	if (setup_converter(stream) < 0) {
 		stream_close(stream);
@@ -533,8 +549,10 @@ struct Stream *stream_open_read(const char *fn, int output_rate)
 	memset(&info, 0, sizeof(info));
 
 	SNDFILE *sf = sf_open(fn, SFM_READ, &info);
-	if (!sf)
+	if (!sf) {
+		set_error(NULL, sf_strerror(sf));
 		return NULL;
+	}
 	return stream_open_read_sf(sf, output_rate);
 }
 
@@ -549,8 +567,10 @@ struct Stream *stream_open_write(const char *fn, int format, int nchan, int inpu
 	info.format = format;
 
 	SNDFILE *sf = sf_open(fn, SFM_WRITE, &info);
-	if (!sf)
+	if (!sf) {
+		set_error(NULL, sf_strerror(sf));
 		return NULL;
+	}
 	if ((format & SF_FORMAT_TYPEMASK) == SF_FORMAT_RF64) {
 		sf_command(sf, SFC_RF64_AUTO_DOWNGRADE, NULL, SF_TRUE);
 	}
@@ -640,16 +660,21 @@ void stream_close(struct Stream *stream)
 	free(stream);
 }
 
+const char *stream_error(struct Stream *stream)
+{
+	if (!stream)
+		return last_error;
+	if (stream->conv_error)
+		return stream->conv_error;
+	if (sf_error(stream->sf) != 0)
+		return sf_strerror(stream->sf);
+	if (errno != 0)
+		return strerror(errno);
+	return NULL;
+}
+
 void stream_perror(struct Stream *stream, const char *desc)
 {
-	SNDFILE *sf = stream ? stream->sf : NULL;
-	if (stream && stream->conv_error) {
-		fprintf(stderr, "%s: %s\n", desc, stream->conv_error);
-	} else if (sf_error(sf) != 0) {
-		fprintf(stderr, "%s: %s\n", desc, sf_strerror(sf));
-	} else if (errno != 0) {
-		perror(desc);
-	} else {
-		fprintf(stderr, "%s: No error?\n", desc);
-	}
+	const char *str = stream_error(stream);
+	fprintf(stderr, "%s: %s\n", desc, str ? str : "no error");
 }
