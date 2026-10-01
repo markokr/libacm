@@ -459,7 +459,7 @@ int stream_guess_format(const char *type, const char *fn)
 
 	const char *ext = fn ? strrchr(fn, '.') : NULL;
 	if (!type && ext)
-		type = ext;
+		type = ext + 1;
 	if (!type)
 		return format;
 
